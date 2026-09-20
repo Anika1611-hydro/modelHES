@@ -5,15 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Мониторинг ГЭС</title>
     
-    <!-- Передаем реферер, чтобы GitHub Pages имел право скачивать тайлы OpenStreetMap -->
-    <meta name="referrer" content="strict-origin-when-cross-origin">
-
-    <!-- Подключаем Leaflet -->
-    <link rel="stylesheet" href="https://unpkg.com" />
-    <script src="https://unpkg.com"></script>
+    <!-- Используем зеркало cdnjs (оно реже блокируется провайдерами и GitHub) -->
+    <link rel="stylesheet" href="https://cloudflare.com" />
+    <script src="https://cloudflare.com"></script>
     
     <style>
-        /* Жестко фиксируем размеры экрана, чтобы избежать серого экрана */
         html, body { 
             margin: 0; 
             padding: 0; 
@@ -39,58 +35,62 @@
     <div id="map"></div>
 
     <script>
-        // Инициализация карты
-        const map = L.map('map').setView([52.8261, 91.3662], 12);
+        // Безопасная инициализация с проверкой загрузки библиотеки
+        window.onload = function() {
+            if (typeof L === 'undefined') {
+                document.body.innerHTML = "<div style='padding:20px; color:red; font-weight:bold;'>Ошибка: Скрипты Leaflet заблокированы вашей сетью или браузером. Попробуйте открыть страницу через VPN или другой браузер.</div>";
+                return;
+            }
 
-        // Стабильный слой OpenStreetMap с явным указанием политики реферера для обхода блокировок
-        const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap',
-            referrerPolicy: 'strict-origin-when-cross-origin'
-        }).addTo(map);
+            // Инициализация карты
+            const map = L.map('map').setView([52.8261, 91.3662], 12);
 
-        // Спутник Esri (как резервный и детальный вариант)
-        const satLayer = L.tileLayer('https://arcgisonline.com{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri'
-        });
+            // Используем альтернативный стабильный сервер тайлов (Hot OSM)
+            const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
 
-        L.control.layers({"Схема (OSM)": osmLayer, "Спутник": satLayer}).addTo(map);
+            // Спутник Esri
+            const satLayer = L.tileLayer('https://arcgisonline.com{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri'
+            });
 
-        // Исправляем баг отрисовки размеров Leaflet при загрузке страницы
-        setTimeout(() => {
-            map.invalidateSize();
-        }, 300);
+            L.control.layers({"Схема (OSM)": osmLayer, "Спутник": satLayer}).addTo(map);
 
-        // Данные ГЭС
-        const damData = {
-            name: "Саяно-Шушенская ГЭС",
-            type: "Арочно-гравитационная",
-            material: "Бетон",
-            height: "242 м",
-            length: "1074 м",
-            capacity: "6400 МВт",
-            reservoirVolume: "31.3 км³",
-            coords: [52.8261, 91.3662]
+            // Исправляем размеры
+            setTimeout(() => { map.invalidateSize(); }, 300);
+
+            // Данные ГЭС
+            const damData = {
+                name: "Саяно-Шушенская ГЭС",
+                type: "Арочно-гравитационная",
+                material: "Бетон",
+                height: "242 м",
+                length: "1074 м",
+                capacity: "6400 МВт",
+                reservoirVolume: "31.3 км³",
+                coords: [52.8261, 91.3662]
+            };
+
+            function createPopupContent(dam) {
+                return `
+                    <div class="dam-popup">
+                        <h3>${dam.name}</h3>
+                        <table>
+                            <tr><td>Тип плотины:</td><td>${dam.type}</td></tr>
+                            <tr><td>Материал:</td><td>${dam.material}</td></tr>
+                            <tr><td>Высота плотины:</td><td>${dam.height}</td></tr>
+                            <tr><td>Длина по гребню:</td><td>${dam.length}</td></tr>
+                            <tr><td>Мощность ГЭС:</td><td>${dam.capacity}</td></tr>
+                            <tr><td>Объем водохранилища:</td><td>${dam.reservoirVolume}</td></tr>
+                        </table>
+                        <button class="btn-simulate" onclick="startBreachSimulation()">⚠ Моделировать прорыв</button>
+                    </div>`;
+            }
+
+            L.marker(damData.coords).addTo(map).bindPopup(createPopupContent(damData)).openPopup();
         };
-
-        function createPopupContent(dam) {
-            return `
-                <div class="dam-popup">
-                    <h3>${dam.name}</h3>
-                    <table>
-                        <tr><td>Тип плотины:</td><td>${dam.type}</td></tr>
-                        <tr><td>Материал:</td><td>${dam.material}</td></tr>
-                        <tr><td>Высота плотины:</td><td>${dam.height}</td></tr>
-                        <tr><td>Длина по гребню:</td><td>${dam.length}</td></tr>
-                        <tr><td>Мощность ГЭС:</td><td>${dam.capacity}</td></tr>
-                        <tr><td>Объем водохранилища:</td><td>${dam.reservoirVolume}</td></tr>
-                    </table>
-                    <button class="btn-simulate" onclick="startBreachSimulation()">⚠ Моделировать прорыв</button>
-                </div>`;
-        }
-
-        // Ставим маркер
-        L.marker(damData.coords).addTo(map).bindPopup(createPopupContent(damData)).openPopup();
 
         function startBreachSimulation() {
             alert("Симуляция запущена!");
