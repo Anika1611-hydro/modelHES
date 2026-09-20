@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мониторинг ГЭС</title>
+    <link rel="stylesheet" href="https://unpkg.com" />
+    <script src="https://unpkg.com"></script>
+    <style>
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { width: 100vw; height: 100vh; background: #e0e0e0; }
+        .dam-popup h3 { margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
+        .dam-popup table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+        .dam-popup td { padding: 4px 0; font-size: 13px; }
+        .dam-popup td:first-child { font-weight: bold; color: #7f8c8d; width: 60%; }
+        .btn-simulate { display: block; width: 100%; padding: 8px; background: #e74c3c; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        // Инициализация карты
+        const map = L.map('map').setView([52.8261, 91.3662], 12);
+
+        // Стабильная карта OSM
+        const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+
+        // Спутник Esri
+        const satLayer = L.tileLayer('https://arcgisonline.com{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri'
+        });
+
+        // Переключатель
+        L.control.layers({"Схема (OSM)": osmLayer, "Спутник": satLayer}).addTo(map);
+
+        // Данные и Маркер
+        const damData = {
+            name: "Саяно-Шушенская ГЭС",
+            type: "Арочно-гравитационная",
+            material: "Бетон",
+            height: "242 м",
+            length: "1074 м",
+            capacity: "6400 МВт",
+            reservoirVolume: "31.3 км³",
+            coords: [52.8261, 91.3662]
+        };
+
+        function createPopupContent(dam) {
+            return `
+                <div class="dam-popup">
+                    <h3>${dam.name}</h3>
+                    <table>
+                        <tr><td>Тип плотины:</td><td>${dam.type}</td></tr>
+                        <tr><td>Материал:</td><td>${dam.material}</td></tr>
+                        <tr><td>Высота плотины:</td><td>${dam.height}</td></tr>
+                        <tr><td>Длина по гребню:</td><td>${dam.length}</td></tr>
+                        <tr><td>Мощность ГЭС:</td><td>${dam.capacity}</td></tr>
+                        <tr><td>Объем водохранилища:</td><td>${dam.reservoirVolume}</td></tr>
+                    </table>
+                    <button class="btn-simulate" onclick="startBreachSimulation()">⚠ Моделировать прорыв</button>
+                </div>`;
+        }
+
+        L.marker(damData.coords).addTo(map).bindPopup(createPopupContent(damData)).openPopup();
+
+        function startBreachSimulation() {
+            alert("Симуляция активирована!");
+        }
+    </script>
+</body>
+</html>
