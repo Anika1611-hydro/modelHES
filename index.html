@@ -3,132 +3,185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Моделирование ГЭС — Автономная модель</title>
+    <title>Модель разрушения Серебрянской ГЭС-1</title>
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091&lang=ru_RU"></script>
     <style>
         html, body {
             margin: 0;
             padding: 0;
             height: 100%;
-            width: 100%;
-            font-family: 'Segoe UI', system-ui, sans-serif;
-            background: #2c3e50;
-            color: #fff;
-            overflow: hidden;
+            font-family: Arial, sans-serif;
         }
-        /* Стили карты и симулятора */
-        #simulator-container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            background: #34495e;
-        }
-        /* Векторная подложка рельефа и реки */
-        #map-svg {
+        #map {
             width: 100%;
             height: 100%;
         }
-        /* Информационная панель */
-        .info-panel {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(44, 62, 80, 0.95);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            max-width: 320px;
-            border-left: 4px solid #3498db;
-            z-index: 10;
+        .balloon-content {
+            width: 360px;
+            padding: 5px;
         }
-        .info-panel h3 { margin: 0 0 10px 0; color: #3498db; }
-        .info-panel table { width: 100%; font-size: 13px; margin-bottom: 15px; }
-        .info-panel td { padding: 4px 0; }
-        .info-panel td:first-child { color: #bdc3c7; font-weight: bold; }
-        /* Кнопка триггера */
-        .btn-simulate {
-            display: block;
+        .balloon-content h3 {
+            margin: 0 0 8px 0;
+            font-size: 16px;
+            color: #c0392b;
+        }
+        .balloon-content video {
             width: 100%;
-            padding: 10px;
-            background: #e74c3c;
-            color: white;
-            border: none;
             border-radius: 4px;
-            font-weight: bold;
-            cursor: pointer;
-            text-align: center;
-            box-sizing: border-box;
+            background: #000;
+            margin-bottom: 10px;
         }
-        .btn-simulate:hover { background: #c0392b; }
-        /* Стили элементов рельефа */
-        .river { fill: none; stroke: #2980b9; stroke-width: 8; stroke-linecap: round; }
-        .flood-zone { fill: #2980b9; opacity: 0; transition: opacity 0.5s ease; }
-        .dam { stroke: #95a5a6; stroke-width: 12; stroke-linecap: square; cursor: pointer; }
-        .dam:hover { stroke: #7f8c8d; }
+        .balloon-content table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .balloon-content td {
+            padding: 4px 6px;
+            border-bottom: 1px solid #eee;
+            vertical-align: top;
+        }
+        .balloon-content td:first-child {
+            color: #666;
+            width: 45%;
+        }
+        .balloon-content td:last-child {
+            color: #222;
+            font-weight: bold;
+        }
+        .balloon-content .note {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #999;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
-
-    <div id="simulator-container">
-        <!-- Информационное окно ГЭС -->
-        <div class="info-panel">
-            <h3>Саяно-Шушенская ГЭС</h3>
-            <table>
-                <tr><td>Тип:</td><td>Арочно-гравитационная</td></tr>
-                <tr><td>Материал:</td><td>Бетон высокопрочный</td></tr>
-                <tr><td>Высота плотины:</td><td>242 м</td></tr>
-                <tr><td>Длина гребня:</td><td>1074 м</td></tr>
-                <tr><td>Мощность:</td><td>6400 МВт</td></tr>
-                <tr><td>Водохранилище:</td><td>31.3 км³</td></tr>
-            </table>
-            <button class="btn-simulate" onclick="triggerBreach()">⚠ Моделировать прорыв</button>
-        </div>
-
-        <!-- Автономная векторная интерактивная карта -->
-        <svg id="map-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
-            <!-- Элементы рельефа (горы/ущелье) -->
-            <path d="M 0,0 L 350,0 L 300,250 L 320,350 L 200,600 L 0,600 Z" fill="#27ae60" opacity="0.4"/>
-            <path d="M 800,0 L 450,0 L 400,250 L 420,350 L 350,600 L 800,600 Z" fill="#27ae60" opacity="0.4"/>
-            
-            <!-- Слой будущего затопления (ГИС-зона) -->
-            <path id="flood" class="flood-zone" d="M 300,250 L 400,250 L 420,350 L 350,600 L 200,600 L 320,350 Z" />
-
-            <!-- Русло реки Енисей -->
-            <path d="M 380,0 Q 370,120 350,250 T 370,350 T 270,600" class="river" />
-            
-            <!-- Тело плотины ГЭС -->
-            <line id="dam-line" x1="300" y1="250" x2="400" y2="250" class="dam" onclick="showDamInfo()" />
-            
-            <!-- Маркер ГЭС -->
-            <circle cx="350" cy="250" r="6" fill="#e74c3c" />
-        </svg>
-    </div>
-
+    <div id="map"></div>
     <script>
-        function showDamInfo() {
-            alert("Вы кликнули на тело плотины ГЭС. Высота сооружения: 242 метра. Материал: Бетон.");
-        }
+        ymaps.ready(function () {
+            // ==== КАРТА ====
+            var myMap = new ymaps.Map("map", {
+                center: [68.818056, 35.534167],   // Серебрянская ГЭС-1
+                zoom: 11,
+                controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
+            });
 
-        // Функция симуляции климатического паводка и разрушения плотины
-        function triggerBreach() {
-            const dam = document.getElementById('dam-line');
-            const flood = document.getElementById('flood');
-            
-            // 1. Эффект разрушения плотины (визуально убираем её с карты)
-            dam.style.transition = "stroke-width 0.8s, opacity 0.8s";
-            dam.style.strokeWidth = "2px";
-            dam.style.stroke = "#c0392b";
-            
-            // 2. Анимация распространения волны прорыва по рельефу ущелья
-            setTimeout(() => {
-                flood.style.opacity = "0.75";
-                flood.style.fill = "#3498db";
-                
-                // Динамическое изменение цвета панели в состояние ЧС
-                document.querySelector('.info-panel').style.borderLeft = "4px solid #e74c3c";
-                
-                alert("КЛИМАТИЧЕСКИЙ ТРИГГЕР: Экстремальные осадки привели к переполнению водохранилища.\n\nПроизошел гидродинамический прорыв плотины! Волна затопления распространяется вниз по рельефу ущелья.");
-            }, 500);
-        }
+            // ==== ПОЛИГОН ЗОНЫ ЗАТОПЛЕНИЯ ====
+            // Примерный контур ниже плотины по долине реки Воронья.
+            // Замените координаты на реальный контур, если нарисуете в QGIS.
+            var floodCoords = [
+                [
+                    [68.8180, 35.5340],  // у плотины
+                    [68.8120, 35.5400],
+                    [68.8050, 35.5480],
+                    [68.7980, 35.5560],
+                    [68.7900, 35.5650],  // низ долины
+                    [68.7950, 35.5750],
+                    [68.8030, 35.5680],
+                    [68.8100, 35.5580],
+                    [68.8160, 35.5480],
+                    [68.8200, 35.5380]
+                ]
+            ];
+
+            var floodPolygon = new ymaps.Polygon(floodCoords, {
+                hintContent: "Зона затопления (базовый сценарий)"
+            }, {
+                fillColor: '#0066ff33',      // полупрозрачный синий
+                strokeColor: '#0066ff',
+                strokeWidth: 2,
+                strokeStyle: 'dash'
+            });
+
+            myMap.geoObjects.add(floodPolygon);
+
+            // ==== МЕТКА ГЭС С ИНФОРМАЦИЕЙ И ВИДЕО ====
+            var damMarker = new ymaps.Placemark(
+                [68.818056, 35.534167],
+                {
+                    balloonContent: `
+                        <div class="balloon-content">
+                            <h3>Серебрянская ГЭС-1</h3>
+                            <video controls muted preload="metadata">
+                                <source src="video.mp4" type="video/mp4">
+                                Ваш браузер не поддерживает видео.
+                            </video>
+                            <table>
+                                <tr><td>Река</td><td>Воронья</td></tr>
+                                <tr><td>Расположение</td><td>Мурманская обл., Кольский р-н</td></tr>
+                                <tr><td>Статус</td><td>Действующая</td></tr>
+                                <tr><td>Установленная мощность</td><td>205 МВт</td></tr>
+                                <tr><td>Тип</td><td>Плотинно-деривационная</td></tr>
+                                <tr><td>Тип плотины</td><td>Каменно-накидная с моренным ядром</td></tr>
+                                <tr><td>Высота плотины</td><td>78 м</td></tr>
+                                <tr><td>Длина плотины</td><td>1820 м</td></tr>
+                                <tr><td>Турбины</td><td>3 × поворотно-лопастные</td></tr>
+                                <tr><td>Расход через турбины</td><td>3 × 101 м³/с</td></tr>
+                                <tr><td>Расчётный напор</td><td>76 м</td></tr>
+                                <tr><td>Пропускная способность водосброса</td><td>654 м³/с при НПУ</td></tr>
+                                <tr><td>Площадь водохранилища</td><td>556 км²</td></tr>
+                                <tr><td>Объём водохранилища</td><td>4174 млн м³</td></tr>
+                                <tr><td>Полезный объём</td><td>1667 млн м³</td></tr>
+                            </table>
+                            <p class="note">Учебная симуляция. Данные из открытых источников.</p>
+                        </div>
+                    `,
+                    hintContent: 'Серебрянская ГЭС-1 — нажмите для подробностей'
+                },
+                {
+                    preset: 'islands#redIcon'
+                }
+            );
+
+            myMap.geoObjects.add(damMarker);
+
+            // ==== КНОПКА «КЛИМАТИЧЕСКИЙ СЦЕНАРИЙ» ====
+            var climateButton = new ymaps.control.Button({
+                data: {
+                    content: "Задействовать климатический сценарий",
+                    title: "Переключить на сценарий экстремального паводка"
+                },
+                options: {
+                    selectOnClick: true,
+                    maxWidth: 260
+                }
+            });
+
+            climateButton.events.add('select', function () {
+                // Меняем цвет полигона на «опасный» красный
+                floodPolygon.options.set({
+                    fillColor: '#ff000066',
+                    strokeColor: '#cc0000',
+                    strokeWidth: 3,
+                    strokeStyle: 'solid'
+                });
+                floodPolygon.properties.set(
+                    'hintContent',
+                    'Зона затопления (сценарий: экстремальный паводок + климат 2050)'
+                );
+                // Меняем текст кнопки
+                climateButton.data.set('content', 'Климатический сценарий ВКЛ');
+            });
+
+            climateButton.events.add('deselect', function () {
+                // Возвращаем базовый вид
+                floodPolygon.options.set({
+                    fillColor: '#0066ff33',
+                    strokeColor: '#0066ff',
+                    strokeWidth: 2,
+                    strokeStyle: 'dash'
+                });
+                floodPolygon.properties.set(
+                    'hintContent',
+                    'Зона затопления (базовый сценарий)'
+                );
+                climateButton.data.set('content', 'Задействовать климатический сценарий');
+            });
+
+            myMap.controls.add(climateButton, { float: 'right' });
+        });
     </script>
 </body>
 </html>
