@@ -4,13 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Мониторинг ГЭС</title>
+    
+    <!-- Надежные ссылки на карту, которые работают везде -->
+    <link rel="stylesheet" href="https://cloudflare.com" />
+    <script src="https://cloudflare.com"></script>
+    
     <style>
-        /* Встроенные базовые стили Leaflet */
-        .leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute;left:0;top:0}.leaflet-container{overflow:hidden;-ms-touch-action:none;touch-action:none;background:#ddd;font:12px/1.5 "Helvetica Neue",Arial,Helvetica,sans-serif}.leaflet-marker-icon,.leaflet-marker-shadow{display:block}.leaflet-tile{filter:inherit;visibility:hidden}.leaflet-tile-loaded{visibility:inherit}.leaflet-zoom-box{width:0;height:0;-moz-box-sizing:border-box;box-sizing:border-box;z-index:800}.leaflet-pane{z-index:400}.leaflet-tile-pane{z-index:200}.leaflet-overlay-pane{z-index:400}.leaflet-shadow-pane{z-index:500}.leaflet-marker-pane{z-index:600}.leaflet-tooltip-pane{z-index:650}.leaflet-popup-pane{z-index:700}.leaflet-map-pane canvas{z-index:100}.leaflet-map-pane svg{z-index:200}.leaflet-vml-shape{width:1px;height:1px}.vml\:shape,.vml\:stroke,.vml\:fill,.vml\:imagedata{behavior:url(#default#VML);display:inline-block;position:absolute}.leaflet-control{position:relative;z-index:800;pointer-events:auto;float:left;clear:both}.leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none}.leaflet-top{top:0}.leaflet-right{right:0}.leaflet-bottom{bottom:0}.leaflet-left{left:0}.leaflet-control{margin-left:10px;margin-top:10px}.leaflet-top.leaflet-right .leaflet-control{margin-right:10px;margin-top:10px}.leaflet-bottom.leaflet-left .leaflet-control{margin-left:10px;margin-bottom:10px}.leaflet-bottom.leaflet-right .leaflet-control{margin-right:10px;margin-bottom:10px}.leaflet-control-zoom{border-radius:4px;background:#fff;border:2px solid rgba(0,0,0,0.2);background-clip:padding-box}.leaflet-control-zoom a{width:26px;height:26px;line-height:26px;display:block;text-align:center;text-decoration:none;color:black;font:bold 18px 'Lucida Console',Monaco,monospace;background:#fff}.leaflet-control-zoom-in{border-bottom:1px solid #ccc}.leaflet-popup{position:absolute;text-align:center;margin-bottom:20px}.leaflet-popup-content-wrapper{padding:1px;text-align:left;border-radius:12px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,0.4)}.leaflet-popup-content{margin:13px 19px;line-height:1.4}.leaflet-popup-tip-container{width:40px;height:20px;position:absolute;left:50%;margin-left:-20px;overflow:hidden;pointer-events:none}.leaflet-popup-tip{width:17px;height:17px;padding:1px;margin:-10px auto 0;transform:rotate(45deg);background:#fff;box-shadow:0 3px 14px rgba(0,0,0,0.4)}.leaflet-popup-close-button{position:absolute;top:0;right:0;padding:4px 4px 0 0;text-align:center;width:18px;height:14px;font:16px/14px Tahoma,Verdana,sans-serif;color:#c3c3c3;text-decoration:none;font-weight:bold;background:transparent}
-        
-        /* Стили нашего интерфейса */
-        html, body { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: sans-serif; }
-        #map { width: 100%; height: 100%; background: #e0e0e0; }
+        html, body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            width: 100%; 
+            overflow: hidden;
+            font-family: sans-serif; 
+        }
+        #map { 
+            width: 100%; 
+            height: 100%; 
+            background: #e0e0e0; 
+        }
         .dam-popup h3 { margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
         .dam-popup table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
         .dam-popup td { padding: 4px 0; font-size: 13px; }
@@ -23,37 +35,16 @@
     <div id="map"></div>
 
     <script>
-        // Встраиваем сжатое ядро Leaflet (фрагмент для инициализации) прямо в JS
-        /* Leaflet 1.9.4 core minimal hack */
-        !function(t,e){"object"==typeof exports&&"undefined"!=typeof module?e(exports):"function"==typeof define&&define.amd?define(["exports"],e):e((t="undefined"!=typeof globalThis?globalThis:t||self).L={})}(this,(function(t){"use strict";function e(t){var e,i,n,o;for(i=1,n=arguments.length;i<n;i++)for(e in o=arguments[i])t[e]=o[e];return t}var i=Object.create||function(){return function(t){return e.prototype=t,new e}}();function n(t){return varArgs(t)}function o(t){return"string"==typeof t}function s(t){return"number"==typeof t}function r(t){return Array.isArray(t)}function a(t){return window.L}/* ... */}));
-    </script>
-    
-    <!-- Вместо сложного инжекта используем резервный чистый JS-скрипт Leaflet из официального источника, но обернутый в проверку -->
-    <script src="https://jsdelivr.net" crossorigin="anonymous"></script>
-
-    <script>
-        // Резервный план на случай, если CDN лежит: если L нет, мы создадим его имитацию, чтобы код не падал
-        if (typeof L === 'undefined') {
-            alert("Внимание: Сеть блокирует загрузку карты. Включаем автономный режим симулятора.");
-            // Создаем заглушку, чтобы код не выдавал ошибку "L is not defined"
-            window.L = {
-                map: function() { return { setView: function() { return { addTo: function() {} } }, invalidateSize: function() {} }; },
-                tileLayer: function() { return { addTo: function() {} }; },
-                marker: function() { return { addTo: function() { return { bindPopup: function() { return { openPopup: function() {} } } } } }; },
-                control: { layers: function() { return { addTo: function() {} }; } }
-            };
-        }
-
-        // Инициализация карты
+        // Инициализация карты (центрируемся на Саяно-Шушенской ГЭС)
         const map = L.map('map').setView([52.8261, 91.3662], 12);
 
-        // Подключаем карту
+        // Базовый слой карты
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; OpenStreetMap'
+            attribution: '&copy; OpenStreetMap contributors'
         }).addTo(map);
 
-        // Данные ГЭС
+        // Данные плотины ГЭС
         const damData = {
             name: "Саяно-Шушенская ГЭС",
             type: "Арочно-гравитационная",
@@ -81,10 +72,11 @@
                 </div>`;
         }
 
+        // Ставим маркер на карту и открываем попап
         L.marker(damData.coords).addTo(map).bindPopup(createPopupContent(damData)).openPopup();
 
         function startBreachSimulation() {
-            alert("Инициализация математической модели прорыва дамбы!");
+            alert("Запуск симуляции прорыва!");
         }
     </script>
 </body>
