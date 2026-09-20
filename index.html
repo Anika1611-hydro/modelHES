@@ -3,80 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мониторинг ГЭС</title>
-    
-    <!-- Надежные ссылки на карту, которые работают везде -->
-    <link rel="stylesheet" href="https://cloudflare.com" />
-    <script src="https://cloudflare.com"></script>
-    
+    <title>Моделирование ГЭС — Автономная модель</title>
     <style>
-        html, body { 
-            margin: 0; 
-            padding: 0; 
-            height: 100%; 
-            width: 100%; 
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #2c3e50;
+            color: #fff;
             overflow: hidden;
-            font-family: sans-serif; 
         }
-        #map { 
-            width: 100%; 
-            height: 100%; 
-            background: #e0e0e0; 
+        /* Стили карты и симулятора */
+        #simulator-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            background: #34495e;
         }
-        .dam-popup h3 { margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
-        .dam-popup table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-        .dam-popup td { padding: 4px 0; font-size: 13px; }
-        .dam-popup td:first-child { font-weight: bold; color: #7f8c8d; width: 60%; }
-        .btn-simulate { display: block; width: 100%; padding: 8px; background: #e74c3c; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; }
+        /* Векторная подложка рельефа и реки */
+        #map-svg {
+            width: 100%;
+            height: 100%;
+        }
+        /* Информационная панель */
+        .info-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(44, 62, 80, 0.95);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            max-width: 320px;
+            border-left: 4px solid #3498db;
+            z-index: 10;
+        }
+        .info-panel h3 { margin: 0 0 10px 0; color: #3498db; }
+        .info-panel table { width: 100%; font-size: 13px; margin-bottom: 15px; }
+        .info-panel td { padding: 4px 0; }
+        .info-panel td:first-child { color: #bdc3c7; font-weight: bold; }
+        /* Кнопка триггера */
+        .btn-simulate {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        .btn-simulate:hover { background: #c0392b; }
+        /* Стили элементов рельефа */
+        .river { fill: none; stroke: #2980b9; stroke-width: 8; stroke-linecap: round; }
+        .flood-zone { fill: #2980b9; opacity: 0; transition: opacity 0.5s ease; }
+        .dam { stroke: #95a5a6; stroke-width: 12; stroke-linecap: square; cursor: pointer; }
+        .dam:hover { stroke: #7f8c8d; }
     </style>
 </head>
 <body>
 
-    <div id="map"></div>
+    <div id="simulator-container">
+        <!-- Информационное окно ГЭС -->
+        <div class="info-panel">
+            <h3>Саяно-Шушенская ГЭС</h3>
+            <table>
+                <tr><td>Тип:</td><td>Арочно-гравитационная</td></tr>
+                <tr><td>Материал:</td><td>Бетон высокопрочный</td></tr>
+                <tr><td>Высота плотины:</td><td>242 м</td></tr>
+                <tr><td>Длина гребня:</td><td>1074 м</td></tr>
+                <tr><td>Мощность:</td><td>6400 МВт</td></tr>
+                <tr><td>Водохранилище:</td><td>31.3 км³</td></tr>
+            </table>
+            <button class="btn-simulate" onclick="triggerBreach()">⚠ Моделировать прорыв</button>
+        </div>
+
+        <!-- Автономная векторная интерактивная карта -->
+        <svg id="map-svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+            <!-- Элементы рельефа (горы/ущелье) -->
+            <path d="M 0,0 L 350,0 L 300,250 L 320,350 L 200,600 L 0,600 Z" fill="#27ae60" opacity="0.4"/>
+            <path d="M 800,0 L 450,0 L 400,250 L 420,350 L 350,600 L 800,600 Z" fill="#27ae60" opacity="0.4"/>
+            
+            <!-- Слой будущего затопления (ГИС-зона) -->
+            <path id="flood" class="flood-zone" d="M 300,250 L 400,250 L 420,350 L 350,600 L 200,600 L 320,350 Z" />
+
+            <!-- Русло реки Енисей -->
+            <path d="M 380,0 Q 370,120 350,250 T 370,350 T 270,600" class="river" />
+            
+            <!-- Тело плотины ГЭС -->
+            <line id="dam-line" x1="300" y1="250" x2="400" y2="250" class="dam" onclick="showDamInfo()" />
+            
+            <!-- Маркер ГЭС -->
+            <circle cx="350" cy="250" r="6" fill="#e74c3c" />
+        </svg>
+    </div>
 
     <script>
-        // Инициализация карты (центрируемся на Саяно-Шушенской ГЭС)
-        const map = L.map('map').setView([52.8261, 91.3662], 12);
-
-        // Базовый слой карты
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-
-        // Данные плотины ГЭС
-        const damData = {
-            name: "Саяно-Шушенская ГЭС",
-            type: "Арочно-гравитационная",
-            material: "Бетон",
-            height: "242 м",
-            length: "1074 м",
-            capacity: "6400 МВт",
-            reservoirVolume: "31.3 км³",
-            coords: [52.8261, 91.3662]
-        };
-
-        function createPopupContent(dam) {
-            return `
-                <div class="dam-popup">
-                    <h3>${dam.name}</h3>
-                    <table>
-                        <tr><td>Тип плотины:</td><td>${dam.type}</td></tr>
-                        <tr><td>Материал:</td><td>${dam.material}</td></tr>
-                        <tr><td>Высота плотины:</td><td>${dam.height}</td></tr>
-                        <tr><td>Длина по гребню:</td><td>${dam.length}</td></tr>
-                        <tr><td>Мощность ГЭС:</td><td>${dam.capacity}</td></tr>
-                        <tr><td>Объем водохранилища:</td><td>${dam.reservoirVolume}</td></tr>
-                    </table>
-                    <button class="btn-simulate" onclick="startBreachSimulation()">⚠ Моделировать прорыв</button>
-                </div>`;
+        function showDamInfo() {
+            alert("Вы кликнули на тело плотины ГЭС. Высота сооружения: 242 метра. Материал: Бетон.");
         }
 
-        // Ставим маркер на карту и открываем попап
-        L.marker(damData.coords).addTo(map).bindPopup(createPopupContent(damData)).openPopup();
-
-        function startBreachSimulation() {
-            alert("Запуск симуляции прорыва!");
+        // Функция симуляции климатического паводка и разрушения плотины
+        function triggerBreach() {
+            const dam = document.getElementById('dam-line');
+            const flood = document.getElementById('flood');
+            
+            // 1. Эффект разрушения плотины (визуально убираем её с карты)
+            dam.style.transition = "stroke-width 0.8s, opacity 0.8s";
+            dam.style.strokeWidth = "2px";
+            dam.style.stroke = "#c0392b";
+            
+            // 2. Анимация распространения волны прорыва по рельефу ущелья
+            setTimeout(() => {
+                flood.style.opacity = "0.75";
+                flood.style.fill = "#3498db";
+                
+                // Динамическое изменение цвета панели в состояние ЧС
+                document.querySelector('.info-panel').style.borderLeft = "4px solid #e74c3c";
+                
+                alert("КЛИМАТИЧЕСКИЙ ТРИГГЕР: Экстремальные осадки привели к переполнению водохранилища.\n\nПроизошел гидродинамический прорыв плотины! Волна затопления распространяется вниз по рельефу ущелья.");
+            }, 500);
         }
     </script>
 </body>
