@@ -4,11 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Мониторинг ГЭС</title>
+    
+    <!-- Передаем реферер, чтобы GitHub Pages имел право скачивать тайлы OpenStreetMap -->
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+
+    <!-- Подключаем Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com" />
     <script src="https://unpkg.com"></script>
+    
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; }
-        #map { width: 100vw; height: 100vh; background: #e0e0e0; }
+        /* Жестко фиксируем размеры экрана, чтобы избежать серого экрана */
+        html, body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            width: 100%; 
+            overflow: hidden;
+            font-family: sans-serif; 
+        }
+        #map { 
+            width: 100%; 
+            height: 100%; 
+            background: #e0e0e0; 
+        }
         .dam-popup h3 { margin: 0 0 10px 0; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 5px; }
         .dam-popup table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
         .dam-popup td { padding: 4px 0; font-size: 13px; }
@@ -17,26 +35,33 @@
     </style>
 </head>
 <body>
+
     <div id="map"></div>
+
     <script>
         // Инициализация карты
         const map = L.map('map').setView([52.8261, 91.3662], 12);
 
-        // Стабильная карта OSM
+        // Стабильный слой OpenStreetMap с явным указанием политики реферера для обхода блокировок
         const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
-            attribution: '&copy; OpenStreetMap'
+            attribution: '&copy; OpenStreetMap',
+            referrerPolicy: 'strict-origin-when-cross-origin'
         }).addTo(map);
 
-        // Спутник Esri
+        // Спутник Esri (как резервный и детальный вариант)
         const satLayer = L.tileLayer('https://arcgisonline.com{z}/{y}/{x}', {
             attribution: 'Tiles &copy; Esri'
         });
 
-        // Переключатель
         L.control.layers({"Схема (OSM)": osmLayer, "Спутник": satLayer}).addTo(map);
 
-        // Данные и Маркер
+        // Исправляем баг отрисовки размеров Leaflet при загрузке страницы
+        setTimeout(() => {
+            map.invalidateSize();
+        }, 300);
+
+        // Данные ГЭС
         const damData = {
             name: "Саяно-Шушенская ГЭС",
             type: "Арочно-гравитационная",
@@ -64,10 +89,11 @@
                 </div>`;
         }
 
+        // Ставим маркер
         L.marker(damData.coords).addTo(map).bindPopup(createPopupContent(damData)).openPopup();
 
         function startBreachSimulation() {
-            alert("Симуляция активирована!");
+            alert("Симуляция запущена!");
         }
     </script>
 </body>
