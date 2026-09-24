@@ -1,186 +1,139 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Модель разрушения Серебрянской ГЭС-1</title>
-    <script src="https://api-maps.yandex.ru/2.1/?apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091&lang=ru_RU"></script>
+    <meta charset="utf-8" />
+    <title>Гидрохимия на карте</title>
     <style>
-        html, body {
-            margin: 0;
-            padding: 0;
+        html, body, #map {
+            width: 100%;
             height: 100%;
+            padding: 0;
+            margin: 0;
             font-family: Arial, sans-serif;
         }
-        #map {
-            width: 100%;
-            height: 100%;
-        }
-        .balloon-content {
-            width: 360px;
-            padding: 5px;
-        }
-        .balloon-content h3 {
-            margin: 0 0 8px 0;
-            font-size: 16px;
-            color: #c0392b;
-        }
-        .balloon-content video {
-            width: 100%;
-            border-radius: 4px;
-            background: #000;
-            margin-bottom: 10px;
-        }
-        .balloon-content table {
-            width: 100%;
+        .balloon-table {
             border-collapse: collapse;
             font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            display: block;
         }
-        .balloon-content td {
-            padding: 4px 6px;
-            border-bottom: 1px solid #eee;
-            vertical-align: top;
+        .balloon-table td {
+            border: 1px solid #ddd;
+            padding: 3px 6px;
         }
-        .balloon-content td:first-child {
-            color: #666;
-            width: 45%;
-        }
-        .balloon-content td:last-child {
-            color: #222;
+        .balloon-table td:first-child {
+            background: #f5f5f5;
             font-weight: bold;
+            white-space: nowrap;
         }
-        .balloon-content .note {
-            margin-top: 8px;
-            font-size: 11px;
-            color: #999;
-            font-style: italic;
+        .layer-switcher {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            font-size: 13px;
+        }
+        .layer-switcher label {
+            display: block;
+            margin-bottom: 5px;
+            cursor: pointer;
         }
     </style>
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091" type="text/javascript"></script>
 </head>
 <body>
     <div id="map"></div>
+
+    <div class="layer-switcher">
+        <label><input type="checkbox" id="chk_own" checked> Собственные 2024–2026</label>
+        <label><input type="checkbox" id="chk_flow"> Расход + ПДК 2019–2024</label>
+        <label><input type="checkbox" id="chk_avg"> Среднегодовые 2010–2024</label>
+    </div>
+
     <script>
         ymaps.ready(function () {
-            // ==== КАРТА ====
-            var myMap = new ymaps.Map("map", {
-                center: [68.818056, 35.534167],   // Серебрянская ГЭС-1
-                zoom: 11,
+            var myMap = new ymaps.Map('map', {
+                center: [59.0, 30.5],   // [широта, долгота]
+                zoom: 8,
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
-            // ==== ПОЛИГОН ЗОНЫ ЗАТОПЛЕНИЯ ====
-            // Примерный контур ниже плотины по долине реки Воронья.
-            // Замените координаты на реальный контур, если нарисуете в QGIS.
-            var floodCoords = [
-                [
-                    [68.8180, 35.5340],  // у плотины
-                    [68.8120, 35.5400],
-                    [68.8050, 35.5480],
-                    [68.7980, 35.5560],
-                    [68.7900, 35.5650],  // низ долины
-                    [68.7950, 35.5750],
-                    [68.8030, 35.5680],
-                    [68.8100, 35.5580],
-                    [68.8160, 35.5480],
-                    [68.8200, 35.5380]
-                ]
-            ];
+            // Создаём три пустые коллекции объектов — по одной на слой
+            var layers = {
+                own:  new ymaps.GeoObjectCollection(),
+                flow: new ymaps.GeoObjectCollection(),
+                avg:  new ymaps.GeoObjectCollection()
+            };
 
-            var floodPolygon = new ymaps.Polygon(floodCoords, {
-                hintContent: "Зона затопления (базовый сценарий)"
-            }, {
-                fillColor: '#0066ff33',      // полупрозрачный синий
-                strokeColor: '#0066ff',
-                strokeWidth: 2,
-                strokeStyle: 'dash'
-            });
-
-            myMap.geoObjects.add(floodPolygon);
-
-            // ==== МЕТКА ГЭС С ИНФОРМАЦИЕЙ И ВИДЕО ====
-            var damMarker = new ymaps.Placemark(
-                [68.818056, 35.534167],
-                {
-                    balloonContent: `
-                        <div class="balloon-content">
-                            <h3>Серебрянская ГЭС-1</h3>
-                            <video controls muted preload="metadata">
-                                <source src="video.mp4" type="video/mp4">
-                                Ваш браузер не поддерживает видео.
-                            </video>
-                            <table>
-                                <tr><td>Река</td><td>Воронья</td></tr>
-                                <tr><td>Расположение</td><td>Мурманская обл., Кольский р-н</td></tr>
-                                <tr><td>Статус</td><td>Действующая</td></tr>
-                                <tr><td>Установленная мощность</td><td>205 МВт</td></tr>
-                                <tr><td>Тип</td><td>Плотинно-деривационная</td></tr>
-                                <tr><td>Тип плотины</td><td>Каменно-накидная с моренным ядром</td></tr>
-                                <tr><td>Высота плотины</td><td>78 м</td></tr>
-                                <tr><td>Длина плотины</td><td>1820 м</td></tr>
-                                <tr><td>Турбины</td><td>3 × поворотно-лопастные</td></tr>
-                                <tr><td>Расход через турбины</td><td>3 × 101 м³/с</td></tr>
-                                <tr><td>Расчётный напор</td><td>76 м</td></tr>
-                                <tr><td>Пропускная способность водосброса</td><td>654 м³/с при НПУ</td></tr>
-                                <tr><td>Площадь водохранилища</td><td>556 км²</td></tr>
-                                <tr><td>Объём водохранилища</td><td>4174 млн м³</td></tr>
-                                <tr><td>Полезный объём</td><td>1667 млн м³</td></tr>
-                            </table>
-                            <p class="note">Учебная симуляция. Данные из открытых источников.</p>
-                        </div>
-                    `,
-                    hintContent: 'Серебрянская ГЭС-1 — нажмите для подробностей'
-                },
-                {
-                    preset: 'islands#redIcon'
+            // Функция для содержимого балуна
+            function makeBalloonContent(properties) {
+                var html = '<div class="balloon-table">';
+                html += '<table>';
+                for (var key in properties) {
+                    var val = properties[key];
+                    if (val === null || val === undefined || val === '') continue;
+                    html += '<tr><td>' + key + '</td><td>' + val + '</td></tr>';
                 }
-            );
+                html += '</table></div>';
+                return html;
+            }
 
-            myMap.geoObjects.add(damMarker);
+            // Загрузка одного слоя
+            function loadLayer(url, targetCollection) {
+                fetch(url)
+                    .then(function (res) { return res.json(); })
+                    .then(function (data) {
+                        data.features.forEach(function (feat) {
+                            var coords = feat.geometry.coordinates; // [lat, lon] после переворота
+                            var placemark = new ymaps.Placemark(
+                                coords,
+                                {
+                                    hintContent: feat.properties.station_id || 'Точка',
+                                    balloonContent: makeBalloonContent(feat.properties)
+                                },
+                                {
+                                    preset: 'islands#blueCircleDotIcon',
+                                    balloonMaxWidth: 400,
+                                    balloonPanelMaxMapArea: 0
+                                }
+                            );
+                            targetCollection.add(placemark);
+                        });
+                    })
+                    .catch(function (err) {
+                        console.error('Ошибка загрузки ' + url + ':', err);
+                    });
+            }
 
-            // ==== КНОПКА «КЛИМАТИЧЕСКИЙ СЦЕНАРИЙ» ====
-            var climateButton = new ymaps.control.Button({
-                data: {
-                    content: "Задействовать климатический сценарий",
-                    title: "Переключить на сценарий экстремального паводка"
-                },
-                options: {
-                    selectOnClick: true,
-                    maxWidth: 260
-                }
+            // Грузим три файла
+            loadLayer('stations_own.geojson',  layers.own);
+            loadLayer('stations_flow.geojson', layers.flow);
+            loadLayer('stations_avg.geojson',  layers.avg);
+
+            // Добавляем все коллекции на карту
+            Object.keys(layers).forEach(function (k) {
+                myMap.geoObjects.add(layers[k]);
             });
 
-            climateButton.events.add('select', function () {
-                // Меняем цвет полигона на «опасный» красный
-                floodPolygon.options.set({
-                    fillColor: '#ff000066',
-                    strokeColor: '#cc0000',
-                    strokeWidth: 3,
-                    strokeStyle: 'solid'
-                });
-                floodPolygon.properties.set(
-                    'hintContent',
-                    'Зона затопления (сценарий: экстремальный паводок + климат 2050)'
-                );
-                // Меняем текст кнопки
-                climateButton.data.set('content', 'Климатический сценарий ВКЛ');
+            // Переключатели видимости
+            document.getElementById('chk_own').addEventListener('change', function (e) {
+                layers.own.options.set('visible', e.target.checked);
+            });
+            document.getElementById('chk_flow').addEventListener('change', function (e) {
+                layers.flow.options.set('visible', e.target.checked);
+            });
+            document.getElementById('chk_avg').addEventListener('change', function (e) {
+                layers.avg.options.set('visible', e.target.checked);
             });
 
-            climateButton.events.add('deselect', function () {
-                // Возвращаем базовый вид
-                floodPolygon.options.set({
-                    fillColor: '#0066ff33',
-                    strokeColor: '#0066ff',
-                    strokeWidth: 2,
-                    strokeStyle: 'dash'
-                });
-                floodPolygon.properties.set(
-                    'hintContent',
-                    'Зона затопления (базовый сценарий)'
-                );
-                climateButton.data.set('content', 'Задействовать климатический сценарий');
-            });
-
-            myMap.controls.add(climateButton, { float: 'right' });
+            // По умолчанию показываем только "own"
+            layers.flow.options.set('visible', false);
+            layers.avg.options.set('visible', false);
         });
     </script>
 </body>
