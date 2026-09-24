@@ -3,137 +3,308 @@
 <head>
     <meta charset="utf-8" />
     <title>Гидрохимия на карте</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         html, body, #map {
-            width: 100%;
-            height: 100%;
-            padding: 0;
-            margin: 0;
+            width: 100%; height: 100%; padding: 0; margin: 0;
             font-family: Arial, sans-serif;
         }
+        /* Панель управления — крупнее */
+        .panel {
+            position: absolute; top: 16px; right: 16px; z-index: 1000;
+            background: white; padding: 14px 18px; border-radius: 8px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.25);
+            font-size: 15px; min-width: 260px;
+        }
+        .panel label {
+            display: block; margin-bottom: 8px; cursor: pointer;
+        }
+        .panel h3 {
+            margin: 0 0 10px 0; font-size: 16px;
+        }
+        .panel select {
+            width: 100%; padding: 6px; font-size: 15px;
+            border: 1px solid #ccc; border-radius: 4px; margin-top: 4px;
+        }
+        /* Балун — крупнее */
+        .balloon-content {
+            font-size: 14px; max-width: 520px;
+        }
+        .balloon-content h3 {
+            margin: 0 0 8px 0; font-size: 17px;
+        }
         .balloon-table {
-            border-collapse: collapse;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
-            display: block;
+            border-collapse: collapse; font-size: 13px;
+            width: 100%; margin-bottom: 10px;
         }
         .balloon-table td {
-            border: 1px solid #ddd;
-            padding: 3px 6px;
+            border: 1px solid #ddd; padding: 4px 8px;
         }
         .balloon-table td:first-child {
-            background: #f5f5f5;
-            font-weight: bold;
-            white-space: nowrap;
+            background: #f5f5f5; font-weight: bold; white-space: nowrap;
         }
-        .layer-switcher {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 1000;
-            background: white;
-            padding: 10px;
-            border-radius: 6px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            font-size: 13px;
+        .chart-wrapper {
+            width: 480px; height: 240px;
         }
-        .layer-switcher label {
-            display: block;
-            margin-bottom: 5px;
-            cursor: pointer;
+        .stat-block {
+            font-size: 13px; background: #f9f9f9;
+            padding: 6px 10px; border-radius: 4px; margin-bottom: 10px;
         }
     </style>
-    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091" type="text/javascript"></script>
+    <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091"></script>
 </head>
 <body>
     <div id="map"></div>
 
-    <div class="layer-switcher">
+    <div class="panel">
+        <h3>Слои</h3>
         <label><input type="checkbox" id="chk_own" checked> Собственные 2024–2026</label>
         <label><input type="checkbox" id="chk_flow"> Расход + ПДК 2019–2024</label>
         <label><input type="checkbox" id="chk_avg"> Среднегодовые 2010–2024</label>
+
+        <h3 style="margin-top:14px;">Параметр</h3>
+        <select id="paramSelect">
+            <option value="__all__">Все параметры</option>
+        </select>
     </div>
 
     <script>
         ymaps.ready(function () {
             var myMap = new ymaps.Map('map', {
-                center: [59.0, 30.5],   // [широта, долгота]
+                center: [59.0, 30.5],
                 zoom: 8,
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
-            // Создаём три пустые коллекции объектов — по одной на слой
-            var layers = {
-                own:  new ymaps.GeoObjectCollection(),
-                flow: new ymaps.GeoObjectCollection(),
-                avg:  new ymaps.GeoObjectCollection()
+            // Хранилище данных по слоям
+            var layerData = {
+                own:  { url: 'stations_own.geojson',  collection: new ymaps.GeoObjectCollection(), points: [], prefix: 'own_' },
+                flow: { url: 'stations_flow.geojson', collection: new ymaps.GeoObjectCollection(), points: [], prefix: 'flow_' },
+                avg:  { url: 'stations_avg.geojson',  collection: new ymaps.GeoObjectCollection(), points: [], prefix: 'avg_'  }
             };
 
-            // Функция для содержимого балуна
-            function makeBalloonContent(properties) {
-                var html = '<div class="balloon-table">';
-                html += '<table>';
-                for (var key in properties) {
-                    var val = properties[key];
-                    if (val === null || val === undefined || val === '') continue;
-                    html += '<tr><td>' + key + '</td><td>' + val + '</td></tr>';
+            // Цвет точки в зависимости от значения
+            function getColor(value, pdk) {
+                if (value === null || value === undefined || value === '') return '#888';
+                var v = parseFloat(value);
+                if (pdk && !isNaN(parseFloat(pdk))) {
+                    var p = parseFloat(pdk);
+                    if (v > p) return '#d32f2f';           // красный — превышение ПДК
+                    if (v > p * 0.8) return '#f57c00';     // оранжевый — близко к ПДК
+                    return '#388e3c';                       // зелёный — норма
                 }
-                html += '</table></div>';
+                return '#1976d2';                           // синий — нет ПДК, но есть данные
+            }
+
+            // Сборка содержимого балуна
+            function makeBalloonContent(pointGroup, valueField, dateField, pdkField, paramName) {
+                var rows = pointGroup.rows;
+                var html = '<div class="balloon-content">';
+                html += '<h3>' + (pointGroup.props.name || pointGroup.props.station_id) + '</h3>';
+
+                // Статистика
+                var values = rows.map(function (r) { return parseFloat(r[valueField]); }).filter(function (v) { return !isNaN(v); });
+                if (values.length > 0) {
+                    var min = Math.min.apply(null, values).toFixed(2);
+                    var max = Math.max.apply(null, values).toFixed(2);
+                    var avg = (values.reduce(function (a, b) { return a + b; }, 0) / values.length).toFixed(2);
+                    html += '<div class="stat-block">';
+                    html += '<b>' + paramName + '</b> · записей: ' + values.length + '<br>';
+                    html += 'мин: ' + min + ' · среднее: ' + avg + ' · макс: ' + max;
+                    html += '</div>';
+                }
+
+                // Таблица «ключ → значение» по общим свойствам
+                html += '<table class="balloon-table">';
+                var skip = {own_date:1, own_value:1, own_parameter:1, own_unit:1,
+                            flow_date:1, flow_value:1, flow_parameter:1, flow_unit:1, flow_flow:1, flow_pdk:1,
+                            avg_year:1, avg_value:1, avg_parameter:1, avg_unit:1};
+                for (var k in pointGroup.props) {
+                    if (skip[k]) continue;
+                    var v = pointGroup.props[k];
+                    if (v === null || v === undefined || v === '') continue;
+                    html += '<tr><td>' + k + '</td><td>' + v + '</td></tr>';
+                }
+                html += '</table>';
+
+                // График
+                html += '<div class="chart-wrapper"><canvas id="chart_' + Math.random().toString(36).slice(2) + '"></canvas></div>';
+                html += '</div>';
                 return html;
             }
 
+            // Сохранённые данные для построения графика после открытия балуна
+            var pendingCharts = {};
+
+            function buildChartData(rows, dateField, valueField) {
+                var sorted = rows.slice().sort(function (a, b) {
+                    return String(a[dateField]).localeCompare(String(b[dateField]));
+                });
+                return {
+                    labels: sorted.map(function (r) { return r[dateField]; }),
+                    values: sorted.map(function (r) { return parseFloat(r[valueField]); })
+                };
+            }
+
             // Загрузка одного слоя
-            function loadLayer(url, targetCollection) {
-                fetch(url)
-                    .then(function (res) { return res.json(); })
+            function loadLayer(key) {
+                var L = layerData[key];
+                fetch(L.url)
+                    .then(function (r) { return r.json(); })
                     .then(function (data) {
+                        // Группируем по station_id
+                        var groups = {};
                         data.features.forEach(function (feat) {
-                            var coords = feat.geometry.coordinates; // [lat, lon] после переворота
+                            var p = feat.properties;
+                            var sid = p.station_id || 'unknown';
+                            if (!groups[sid]) groups[sid] = { props: p, coords: feat.geometry.coordinates, rows: [] };
+                            groups[sid].rows.push(p);
+                        });
+
+                        // Создаём placemark на каждую группу
+                        Object.keys(groups).forEach(function (sid) {
+                            var g = groups[sid];
+                            L.points.push(g);
+
+                            // Определяем, какие поля в этом слое
+                            var prefix = L.prefix;
+                            var dateField = prefix + (prefix === 'avg_' ? 'year' : 'date');
+                            var valueField = prefix + 'value';
+                            var paramField = prefix + 'parameter';
+                            var unitField = prefix + 'unit';
+                            var pdkField = prefix === 'flow_' ? prefix + 'pdk' : null;
+
+                            // Ищем конкретное значение для стилизации
+                            var firstRow = g.rows[0];
+                            var paramValue = firstRow[paramField];
+                            var val = parseFloat(firstRow[valueField]);
+                            var pdk = pdkField ? parseFloat(firstRow[pdkField]) : null;
+                            var color = getColor(val, pdk);
+
                             var placemark = new ymaps.Placemark(
-                                coords,
+                                g.coords,
                                 {
-                                    hintContent: feat.properties.station_id || 'Точка',
-                                    balloonContent: makeBalloonContent(feat.properties)
+                                    hintContent: (g.props.name || sid) + ' — ' + paramValue,
+                                    balloonContent: makeBalloonContent(g, valueField, dateField, pdkField, paramValue)
                                 },
                                 {
-                                    preset: 'islands#blueCircleDotIcon',
-                                    balloonMaxWidth: 400,
+                                    preset: 'islands#circleIcon',
+                                    iconColor: color,
+                                    iconCircleRadius: 10,
+                                    balloonMaxWidth: 560,
                                     balloonPanelMaxMapArea: 0
                                 }
                             );
-                            targetCollection.add(placemark);
+
+                            // После открытия балуна — рисуем график
+                            placemark.events.add('balloonopen', function () {
+                                setTimeout(function () {
+                                    var canvas = document.querySelector('.balloon-content canvas');
+                                    if (!canvas) return;
+                                    var ctx = canvas.getContext('2d');
+                                    var chartData = buildChartData(g.rows, dateField, valueField);
+                                    new Chart(ctx, {
+                                        type: 'line',
+                                        data: {
+                                            labels: chartData.labels,
+                                            datasets: [{
+                                                label: paramValue,
+                                                data: chartData.values,
+                                                borderColor: '#1976d2',
+                                                backgroundColor: 'rgba(25,118,210,0.15)',
+                                                tension: 0.2,
+                                                pointRadius: 4
+                                            }]
+                                        },
+                                        options: {
+                                            responsive: true,
+                                            maintainAspectRatio: false,
+                                            plugins: { legend: { display: false } },
+                                            scales: {
+                                                x: { ticks: { font: { size: 11 } } },
+                                                y: { ticks: { font: { size: 11 } } }
+                                            }
+                                        }
+                                    });
+                                }, 50);
+                            });
+
+                            L.collection.add(placemark);
                         });
+
+                        // Обновляем выпадающий список параметров
+                        updateParameterList();
                     })
-                    .catch(function (err) {
-                        console.error('Ошибка загрузки ' + url + ':', err);
-                    });
+                    .catch(function (err) { console.error('Ошибка загрузки ' + L.url, err); });
             }
 
-            // Грузим три файла
-            loadLayer('stations_own.geojson',  layers.own);
-            loadLayer('stations_flow.geojson', layers.flow);
-            loadLayer('stations_avg.geojson',  layers.avg);
+            // Обновление списка параметров
+            function updateParameterList() {
+                var allParams = {};
+                Object.keys(layerData).forEach(function (k) {
+                    var prefix = layerData[k].prefix;
+                    layerData[k].points.forEach(function (g) {
+                        g.rows.forEach(function (r) {
+                            var p = r[prefix + 'parameter'];
+                            if (p) allParams[p] = true;
+                        });
+                    });
+                });
+                var sel = document.getElementById('paramSelect');
+                sel.innerHTML = '<option value="__all__">Все параметры</option>';
+                Object.keys(allParams).sort().forEach(function (p) {
+                    var opt = document.createElement('option');
+                    opt.value = p; opt.textContent = p;
+                    sel.appendChild(opt);
+                });
+            }
 
-            // Добавляем все коллекции на карту
-            Object.keys(layers).forEach(function (k) {
-                myMap.geoObjects.add(layers[k]);
+            // Фильтр по параметру
+            document.getElementById('paramSelect').addEventListener('change', function (e) {
+                var param = e.target.value;
+                Object.keys(layerData).forEach(function (k) {
+                    var L = layerData[k];
+                    L.collection.each(function (pm) {
+                        var visible = true;
+                        if (param !== '__all__') {
+                            var found = L.points.some(function (g) {
+                                return g.rows.some(function (r) {
+                                    return r[L.prefix + 'parameter'] === param &&
+                                           pm.geometry.getCoordinates()[0] === g.coords[0] &&
+                                           pm.geometry.getCoordinates()[1] === g.coords[1];
+                                });
+                            });
+                            visible = found;
+                        }
+                        pm.options.set('visible', visible);
+                    });
+                });
             });
 
-            // Переключатели видимости
+            // Загружаем все три слоя
+            loadLayer('own');
+            loadLayer('flow');
+            loadLayer('avg');
+
+            // Добавляем коллекции на карту
+            Object.keys(layerData).forEach(function (k) {
+                myMap.geoObjects.add(layerData[k].collection);
+            });
+
+            // Переключатели слоёв
             document.getElementById('chk_own').addEventListener('change', function (e) {
-                layers.own.options.set('visible', e.target.checked);
+                layerData.own.collection.options.set('visible', e.target.checked);
             });
             document.getElementById('chk_flow').addEventListener('change', function (e) {
-                layers.flow.options.set('visible', e.target.checked);
+                layerData.flow.collection.options.set('visible', e.target.checked);
             });
             document.getElementById('chk_avg').addEventListener('change', function (e) {
-                layers.avg.options.set('visible', e.target.checked);
+                layerData.avg.collection.options.set('visible', e.target.checked);
             });
 
-            // По умолчанию показываем только "own"
-            layers.flow.options.set('visible', false);
-            layers.avg.options.set('visible', false);
+            // По умолчанию только "own"
+            layerData.flow.collection.options.set('visible', false);
+            layerData.avg.collection.options.set('visible', false);
         });
     </script>
 </body>
