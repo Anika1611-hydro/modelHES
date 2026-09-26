@@ -5,51 +5,52 @@
     <title>Гидрохимия на карте</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
-        html, body, #map {
-            width: 100%; height: 100%; padding: 0; margin: 0;
-            font-family: Arial, sans-serif;
-        }
-        /* Панель управления — крупнее */
+        html, body, #map { width: 100%; height: 100%; padding: 0; margin: 0; font-family: Arial, sans-serif; }
+
         .panel {
             position: absolute; top: 16px; right: 16px; z-index: 1000;
             background: white; padding: 14px 18px; border-radius: 8px;
             box-shadow: 0 3px 12px rgba(0,0,0,0.25);
-            font-size: 15px; min-width: 260px;
+            font-size: 15px; width: 320px; max-height: 85vh; overflow-y: auto;
         }
-        .panel label {
-            display: block; margin-bottom: 8px; cursor: pointer;
+        .panel h3 { margin: 0 0 10px 0; font-size: 16px; }
+        .panel .subtitle { font-size: 13px; color: #666; margin-bottom: 10px; }
+
+        .group { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .group-header {
+            background: #f5f5f5; padding: 8px 12px; cursor: pointer;
+            font-weight: bold; font-size: 14px; user-select: none;
+            display: flex; justify-content: space-between; align-items: center;
         }
-        .panel h3 {
-            margin: 0 0 10px 0; font-size: 16px;
+        .group-header:hover { background: #ececec; }
+        .group-header .arrow { font-size: 11px; color: #666; transition: transform 0.15s; }
+        .group.open .group-header .arrow { transform: rotate(90deg); }
+        .group-body { display: none; padding: 8px 12px; }
+        .group.open .group-body { display: block; }
+
+        .param-row { display: block; margin-bottom: 5px; cursor: pointer; user-select: none; }
+        .param-row.disabled { opacity: 0.35; cursor: not-allowed; }
+        .param-row input { margin-right: 6px; }
+        .param-row.active { color: #1565c0; font-weight: bold; }
+
+        .btn-clear {
+            display: block; width: 100%; margin-top: 12px; padding: 8px 10px;
+            font-size: 14px; border: 1px solid #ccc; background: #f9f9f9;
+            border-radius: 4px; cursor: pointer;
         }
-        .panel select {
-            width: 100%; padding: 6px; font-size: 15px;
-            border: 1px solid #ccc; border-radius: 4px; margin-top: 4px;
-        }
-        /* Балун — крупнее */
-        .balloon-content {
-            font-size: 14px; max-width: 520px;
-        }
-        .balloon-content h3 {
-            margin: 0 0 8px 0; font-size: 17px;
-        }
-        .balloon-table {
-            border-collapse: collapse; font-size: 13px;
-            width: 100%; margin-bottom: 10px;
-        }
-        .balloon-table td {
-            border: 1px solid #ddd; padding: 4px 8px;
-        }
-        .balloon-table td:first-child {
-            background: #f5f5f5; font-weight: bold; white-space: nowrap;
-        }
-        .chart-wrapper {
-            width: 480px; height: 240px;
-        }
-        .stat-block {
-            font-size: 13px; background: #f9f9f9;
-            padding: 6px 10px; border-radius: 4px; margin-bottom: 10px;
-        }
+        .btn-clear:hover { background: #eee; }
+
+        .balloon-content { font-size: 14px; max-width: 540px; }
+        .balloon-content h3 { margin: 0 0 4px 0; font-size: 17px; }
+        .balloon-content .river { color: #555; font-size: 13px; margin-bottom: 8px; }
+        .balloon-content .hint { color: #999; font-size: 13px; font-style: italic; }
+        .balloon-table { border-collapse: collapse; font-size: 13px; width: 100%; margin-bottom: 10px; }
+        .balloon-table td { border: 1px solid #ddd; padding: 4px 8px; }
+        .balloon-table td:first-child { background: #f5f5f5; font-weight: bold; white-space: nowrap; }
+        .chart-wrapper { width: 500px; height: 260px; }
+        .legend { font-size: 12px; color: #666; margin-bottom: 6px; }
+        .legend span { display: inline-block; margin-right: 12px; }
+        .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
     </style>
     <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091"></script>
 </head>
@@ -57,15 +58,10 @@
     <div id="map"></div>
 
     <div class="panel">
-        <h3>Слои</h3>
-        <label><input type="checkbox" id="chk_own" checked> Собственные 2024–2026</label>
-        <label><input type="checkbox" id="chk_flow"> Расход + ПДК 2019–2024</label>
-        <label><input type="checkbox" id="chk_avg"> Среднегодовые 2010–2024</label>
-
-        <h3 style="margin-top:14px;">Параметр</h3>
-        <select id="paramSelect">
-            <option value="__all__">Все параметры</option>
-        </select>
+        <h3>Параметры</h3>
+        <div class="subtitle">Выберите параметр → активируются связанные</div>
+        <div id="groupsContainer"></div>
+        <button class="btn-clear" id="btnClear">Сбросить всё</button>
     </div>
 
     <script>
@@ -76,235 +72,376 @@
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
-            // Хранилище данных по слоям
-            var layerData = {
-                own:  { url: 'stations_own.geojson',  collection: new ymaps.GeoObjectCollection(), points: [], prefix: 'own_' },
-                flow: { url: 'stations_flow.geojson', collection: new ymaps.GeoObjectCollection(), points: [], prefix: 'flow_' },
-                avg:  { url: 'stations_avg.geojson',  collection: new ymaps.GeoObjectCollection(), points: [], prefix: 'avg_'  }
+            // ============ ГРУППЫ ПАРАМЕТРОВ (как на скрине) ============
+            var GROUPS = {
+                'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
+                'Металлы': ['Cu', 'Feобщ', 'Feраств​',
+                            'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg',
+                            'Pb', 'Cd', 'Fe'],
+                'Физико-химические': ['pH', 'Жₒ', 'PO₄³⁻', 'ХПК', 'БПК5',
+                                    'ПМО'],
             };
 
-            // Цвет точки в зависимости от значения
-            function getColor(value, pdk) {
-                if (value === null || value === undefined || value === '') return '#888';
-                var v = parseFloat(value);
-                if (pdk && !isNaN(parseFloat(pdk))) {
-                    var p = parseFloat(pdk);
-                    if (v > p) return '#d32f2f';           // красный — превышение ПДК
-                    if (v > p * 0.8) return '#f57c00';     // оранжевый — близко к ПДК
-                    return '#388e3c';                       // зелёный — норма
-                }
-                return '#1976d2';                           // синий — нет ПДК, но есть данные
+            // Параметры, которые не идут в группы, но всегда показываются на графике, если есть
+            var SPECIAL_PARAMS = ['расход воды', 'ПДК'];
+
+            var stations = {};
+            var placemarks = {};
+            var allParams = {};     // { paramName: { station_id: true } }
+            var activeParams = {};
+            var availableParams = null;
+
+            var FILES = [
+                { url: 'stations_own.geojson',  prefix: 'own_',  dateField: 'own_date' },
+                { url: 'stations_flow.geojson', prefix: 'flow_', dateField: 'flow_date' },
+                { url: 'stations_avg.geojson',  prefix: 'avg_',  dateField: 'avg_year' }
+            ];
+
+            // ---------- Загрузка ----------
+            function loadFile(cfg) {
+                return fetch(cfg.url).then(function (r) { return r.json(); }).then(function (data) {
+                    data.features.forEach(function (feat) {
+                        var p = feat.properties;
+                        var sid = p.station_id || 'unknown';
+                        if (!stations[sid]) {
+                            stations[sid] = {
+                                station_id: sid,
+                                name: p.name || sid,
+                                river: p.river || '',
+                                coords: feat.geometry.coordinates,
+                                measurements: []
+                            };
+                        }
+                        var param = p[cfg.prefix + 'parameter'];
+                        var value = p[cfg.prefix + 'value'];
+                        if (param && value !== undefined && value !== null && value !== '') {
+                            stations[sid].measurements.push({
+                                source: cfg.prefix.replace('_',''),
+                                param: param,
+                                value: value,
+                                unit: p[cfg.prefix + 'unit'] || '',
+                                date: p[cfg.dateField] || '',
+                                pdk: cfg.prefix === 'flow_' ? p['flow_pdk'] : null,
+                                flow: cfg.prefix === 'flow_' ? p['flow_flow'] : null
+                            });
+                            if (!allParams[param]) allParams[param] = {};
+                            allParams[param][sid] = true;
+                        }
+                    });
+                });
             }
 
-            // Сборка содержимого балуна
-            function makeBalloonContent(pointGroup, valueField, dateField, pdkField, paramName) {
-                var rows = pointGroup.rows;
+            // ---------- Панель ----------
+            function buildPanel() {
+                var container = document.getElementById('groupsContainer');
+                container.innerHTML = '';
+                Object.keys(GROUPS).forEach(function (groupName) {
+                    var groupDiv = document.createElement('div');
+                    groupDiv.className = 'group open';
+
+                    var header = document.createElement('div');
+                    header.className = 'group-header';
+                    header.innerHTML = '<span>' + groupName + '</span><span class="arrow">▶</span>';
+                    header.addEventListener('click', function () { groupDiv.classList.toggle('open'); });
+                    groupDiv.appendChild(header);
+
+                    var body = document.createElement('div');
+                    body.className = 'group-body';
+
+                    GROUPS[groupName].forEach(function (param) {
+                        if (!allParams[param]) return;
+                        var rowId = 'p_' + param.replace(/[^a-zA-Z0-9а-яА-Я]/g, '_');
+                        var label = document.createElement('label');
+                        label.className = 'param-row';
+                        label.setAttribute('data-param', param);
+                        label.innerHTML = '<input type="checkbox" id="' + rowId + '" data-param="' + param + '"> ' + param;
+                        body.appendChild(label);
+                    });
+
+                    groupDiv.appendChild(body);
+                    container.appendChild(groupDiv);
+                });
+
+                container.querySelectorAll('input[type=checkbox]').forEach(function (cb) {
+                    cb.addEventListener('change', function () {
+                        var param = cb.getAttribute('data-param');
+                        if (cb.checked) activeParams[param] = true;
+                        else delete activeParams[param];
+                        recomputeAvailable();
+                        applyFilter();
+                        refreshBalloons();
+                    });
+                });
+            }
+
+            function recomputeAvailable() {
+                var selected = Object.keys(activeParams);
+                if (selected.length === 0) {
+                    availableParams = null;
+                } else {
+                    var relevantStations = {};
+                    selected.forEach(function (p) {
+                        if (allParams[p]) Object.keys(allParams[p]).forEach(function (sid) { relevantStations[sid] = true; });
+                    });
+                    availableParams = {};
+                    Object.keys(allParams).forEach(function (p) {
+                        Object.keys(allParams[p]).forEach(function (sid) {
+                            if (relevantStations[sid]) availableParams[p] = true;
+                        });
+                    });
+                }
+                document.querySelectorAll('#groupsContainer .param-row').forEach(function (row) {
+                    var p = row.getAttribute('data-param');
+                    var cb = row.querySelector('input');
+                    var isActive = !!activeParams[p];
+                    var isAvailable = (availableParams === null) || availableParams[p];
+                    if (!isAvailable && !isActive) {
+                        row.classList.add('disabled'); cb.disabled = true;
+                    } else {
+                        row.classList.remove('disabled'); cb.disabled = false;
+                    }
+                    if (isActive) row.classList.add('active');
+                    else row.classList.remove('active');
+                });
+            }
+
+            // ---------- Фильтр точек ----------
+            function applyFilter() {
+                var hasFilter = Object.keys(activeParams).length > 0;
+                Object.keys(placemarks).forEach(function (sid) {
+                    var pm = placemarks[sid];
+                    if (!hasFilter) {
+                        pm.options.set({ iconColor: '#1976d2', opacity: 1 });
+                        return;
+                    }
+                    var match = stations[sid].measurements.some(function (m) { return activeParams[m.param]; });
+                    if (match) pm.options.set({ iconColor: '#1976d2', opacity: 1 });
+                    else pm.options.set({ iconColor: '#cccccc', opacity: 0.3 });
+                });
+            }
+
+            // ---------- Балун ----------
+            function refreshBalloons() {
+                Object.keys(placemarks).forEach(function (sid) {
+                    placemarks[sid].properties.set('balloonContent', buildBalloon(stations[sid]));
+                });
+            }
+
+            var chartCounter = 0;
+
+            function buildBalloon(st) {
                 var html = '<div class="balloon-content">';
-                html += '<h3>' + (pointGroup.props.name || pointGroup.props.station_id) + '</h3>';
+                html += '<h3>' + (st.river || '') + ' — ' + (st.name || st.station_id) + '</h3>';
 
-                // Статистика
-                var values = rows.map(function (r) { return parseFloat(r[valueField]); }).filter(function (v) { return !isNaN(v); });
-                if (values.length > 0) {
-                    var min = Math.min.apply(null, values).toFixed(2);
-                    var max = Math.max.apply(null, values).toFixed(2);
-                    var avg = (values.reduce(function (a, b) { return a + b; }, 0) / values.length).toFixed(2);
-                    html += '<div class="stat-block">';
-                    html += '<b>' + paramName + '</b> · записей: ' + values.length + '<br>';
-                    html += 'мин: ' + min + ' · среднее: ' + avg + ' · макс: ' + max;
+                var selected = Object.keys(activeParams);
+                if (selected.length === 0) {
+                    html += '<div class="hint">Выберите параметр в панели, чтобы увидеть данные</div>';
                     html += '</div>';
+                    return html;
                 }
 
-                // Таблица «ключ → значение» по общим свойствам
-                html += '<table class="balloon-table">';
-                var skip = {own_date:1, own_value:1, own_parameter:1, own_unit:1,
-                            flow_date:1, flow_value:1, flow_parameter:1, flow_unit:1, flow_flow:1, flow_pdk:1,
-                            avg_year:1, avg_value:1, avg_parameter:1, avg_unit:1};
-                for (var k in pointGroup.props) {
-                    if (skip[k]) continue;
-                    var v = pointGroup.props[k];
-                    if (v === null || v === undefined || v === '') continue;
-                    html += '<tr><td>' + k + '</td><td>' + v + '</td></tr>';
+                // Измерения по выбранным параметрам
+                var filtered = st.measurements.filter(function (m) { return activeParams[m.param]; });
+                if (filtered.length === 0) {
+                    html += '<div class="hint">На этой станции нет выбранных параметров</div>';
+                    html += '</div>';
+                    return html;
                 }
+
+                // Статистика по параметрам
+                var byParam = {};
+                filtered.forEach(function (m) {
+                    if (!byParam[m.param]) byParam[m.param] = { count: 0, min: Infinity, max: -Infinity, unit: m.unit };
+                    byParam[m.param].count++;
+                    var v = parseFloat(m.value);
+                    if (!isNaN(v)) {
+                        if (v < byParam[m.param].min) byParam[m.param].min = v;
+                        if (v > byParam[m.param].max) byParam[m.param].max = v;
+                    }
+                });
+
+                html += '<table class="balloon-table">';
+                html += '<tr><td>Параметр</td><td>N</td><td>Мин</td><td>Макс</td><td>Ед.</td></tr>';
+                Object.keys(byParam).sort().forEach(function (p) {
+                    var b = byParam[p];
+                    var mn = isFinite(b.min) ? b.min.toFixed(2) : '—';
+                    var mx = isFinite(b.max) ? b.max.toFixed(2) : '—';
+                    html += '<tr><td>' + p + '</td><td>' + b.count + '</td><td>' + mn + '</td><td>' + mx + '</td><td>' + b.unit + '</td></tr>';
+                });
                 html += '</table>';
 
-                // График
-                html += '<div class="chart-wrapper"><canvas id="chart_' + Math.random().toString(36).slice(2) + '"></canvas></div>';
+                // ---- Легенда ----
+                html += '<div class="legend">';
+                html += '<span><span class="dot" style="background:#1976d2"></span>значения параметра</span>';
+                var hasFlow = st.measurements.some(function (m) { return m.flow !== null && m.flow !== undefined && m.flow !== ''; });
+                var hasPdk  = filtered.some(function (m) { return m.pdk !== null && m.pdk !== undefined && m.pdk !== ''; });
+                if (hasFlow) html += '<span><span class="dot" style="background:#43a047"></span>расход воды</span>';
+                if (hasPdk)  html += '<span><span class="dot" style="background:#e53935"></span>ПДК</span>';
                 html += '</div>';
+
+                // ---- График ----
+                var canvasId = 'chart_' + (++chartCounter);
+                html += '<div class="chart-wrapper"><canvas id="' + canvasId + '"></canvas></div>';
+                html += '</div>';
+
+                // Сохраняем данные, чтобы после открытия балуна построить график
+                window.__pendingCharts = window.__pendingCharts || {};
+                window.__pendingCharts[canvasId] = { st: st, filtered: filtered };
+
                 return html;
             }
 
-            // Сохранённые данные для построения графика после открытия балуна
-            var pendingCharts = {};
+            // ---------- Построение графика после открытия балуна ----------
+            function renderChart(canvasId) {
+                var payload = (window.__pendingCharts || {})[canvasId];
+                if (!payload) return;
+                var ctx = document.getElementById(canvasId);
+                if (!ctx) return;
 
-            function buildChartData(rows, dateField, valueField) {
-                var sorted = rows.slice().sort(function (a, b) {
-                    return String(a[dateField]).localeCompare(String(b[dateField]));
+                var st = payload.st;
+                var filtered = payload.filtered;
+
+                // Для графика берём только один (первый выбранный) параметр
+                var firstParam = Object.keys(activeParams)[0];
+                var points = filtered.filter(function (m) { return m.param === firstParam; });
+                points.sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+
+                var labels = points.map(function (m) { return m.date; });
+                var values = points.map(function (m) { return parseFloat(m.value); });
+                var unit = points.length ? points[0].unit : '';
+
+                // Расход — из всех измерений станции (если есть)
+                var flowPoints = st.measurements
+                    .filter(function (m) { return m.flow !== null && m.flow !== undefined && m.flow !== ''; })
+                    .sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); });
+                var flowData = labels.map(function (d) {
+                    var fp = flowPoints.find(function (m) { return m.date === d; });
+                    return fp ? parseFloat(fp.flow) : null;
                 });
-                return {
-                    labels: sorted.map(function (r) { return r[dateField]; }),
-                    values: sorted.map(function (r) { return parseFloat(r[valueField]); })
-                };
-            }
 
-            // Загрузка одного слоя
-            function loadLayer(key) {
-                var L = layerData[key];
-                fetch(L.url)
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) {
-                        // Группируем по station_id
-                        var groups = {};
-                        data.features.forEach(function (feat) {
-                            var p = feat.properties;
-                            var sid = p.station_id || 'unknown';
-                            if (!groups[sid]) groups[sid] = { props: p, coords: feat.geometry.coordinates, rows: [] };
-                            groups[sid].rows.push(p);
-                        });
+                // ПДК — из измерений выбранного параметра
+                var pdkValue = null;
+                for (var i = 0; i < points.length; i++) {
+                    if (points[i].pdk !== null && points[i].pdk !== undefined && points[i].pdk !== '') {
+                        pdkValue = parseFloat(points[i].pdk); break;
+                    }
+                }
 
-                        // Создаём placemark на каждую группу
-                        Object.keys(groups).forEach(function (sid) {
-                            var g = groups[sid];
-                            L.points.push(g);
+                var datasets = [{
+                    label: firstParam + (unit ? ', ' + unit : ''),
+                    data: values,
+                    borderColor: '#1976d2',
+                    backgroundColor: 'rgba(25,118,210,0.15)',
+                    tension: 0.2,
+                    pointRadius: 4,
+                    yAxisID: 'y'
+                }];
 
-                            // Определяем, какие поля в этом слое
-                            var prefix = L.prefix;
-                            var dateField = prefix + (prefix === 'avg_' ? 'year' : 'date');
-                            var valueField = prefix + 'value';
-                            var paramField = prefix + 'parameter';
-                            var unitField = prefix + 'unit';
-                            var pdkField = prefix === 'flow_' ? prefix + 'pdk' : null;
-
-                            // Ищем конкретное значение для стилизации
-                            var firstRow = g.rows[0];
-                            var paramValue = firstRow[paramField];
-                            var val = parseFloat(firstRow[valueField]);
-                            var pdk = pdkField ? parseFloat(firstRow[pdkField]) : null;
-                            var color = getColor(val, pdk);
-
-                            var placemark = new ymaps.Placemark(
-                                g.coords,
-                                {
-                                    hintContent: (g.props.name || sid) + ' — ' + paramValue,
-                                    balloonContent: makeBalloonContent(g, valueField, dateField, pdkField, paramValue)
-                                },
-                                {
-                                    preset: 'islands#circleIcon',
-                                    iconColor: color,
-                                    iconCircleRadius: 10,
-                                    balloonMaxWidth: 560,
-                                    balloonPanelMaxMapArea: 0
-                                }
-                            );
-
-                            // После открытия балуна — рисуем график
-                            placemark.events.add('balloonopen', function () {
-                                setTimeout(function () {
-                                    var canvas = document.querySelector('.balloon-content canvas');
-                                    if (!canvas) return;
-                                    var ctx = canvas.getContext('2d');
-                                    var chartData = buildChartData(g.rows, dateField, valueField);
-                                    new Chart(ctx, {
-                                        type: 'line',
-                                        data: {
-                                            labels: chartData.labels,
-                                            datasets: [{
-                                                label: paramValue,
-                                                data: chartData.values,
-                                                borderColor: '#1976d2',
-                                                backgroundColor: 'rgba(25,118,210,0.15)',
-                                                tension: 0.2,
-                                                pointRadius: 4
-                                            }]
-                                        },
-                                        options: {
-                                            responsive: true,
-                                            maintainAspectRatio: false,
-                                            plugins: { legend: { display: false } },
-                                            scales: {
-                                                x: { ticks: { font: { size: 11 } } },
-                                                y: { ticks: { font: { size: 11 } } }
-                                            }
-                                        }
-                                    });
-                                }, 50);
-                            });
-
-                            L.collection.add(placemark);
-                        });
-
-                        // Обновляем выпадающий список параметров
-                        updateParameterList();
-                    })
-                    .catch(function (err) { console.error('Ошибка загрузки ' + L.url, err); });
-            }
-
-            // Обновление списка параметров
-            function updateParameterList() {
-                var allParams = {};
-                Object.keys(layerData).forEach(function (k) {
-                    var prefix = layerData[k].prefix;
-                    layerData[k].points.forEach(function (g) {
-                        g.rows.forEach(function (r) {
-                            var p = r[prefix + 'parameter'];
-                            if (p) allParams[p] = true;
-                        });
+                var showFlow = flowData.some(function (v) { return v !== null && !isNaN(v); });
+                if (showFlow) {
+                    datasets.push({
+                        label: 'расход воды, м³/с',
+                        data: flowData,
+                        borderColor: '#43a047',
+                        backgroundColor: 'rgba(67,160,71,0.1)',
+                        tension: 0.2,
+                        pointRadius: 3,
+                        yAxisID: 'y1',
+                        spanGaps: true
                     });
-                });
-                var sel = document.getElementById('paramSelect');
-                sel.innerHTML = '<option value="__all__">Все параметры</option>';
-                Object.keys(allParams).sort().forEach(function (p) {
-                    var opt = document.createElement('option');
-                    opt.value = p; opt.textContent = p;
-                    sel.appendChild(opt);
-                });
-            }
+                }
 
-            // Фильтр по параметру
-            document.getElementById('paramSelect').addEventListener('change', function (e) {
-                var param = e.target.value;
-                Object.keys(layerData).forEach(function (k) {
-                    var L = layerData[k];
-                    L.collection.each(function (pm) {
-                        var visible = true;
-                        if (param !== '__all__') {
-                            var found = L.points.some(function (g) {
-                                return g.rows.some(function (r) {
-                                    return r[L.prefix + 'parameter'] === param &&
-                                           pm.geometry.getCoordinates()[0] === g.coords[0] &&
-                                           pm.geometry.getCoordinates()[1] === g.coords[1];
-                                });
-                            });
-                            visible = found;
+                if (pdkValue !== null && !isNaN(pdkValue)) {
+                    datasets.push({
+                        label: 'ПДК',
+                        data: labels.map(function () { return pdkValue; }),
+                        borderColor: '#e53935',
+                        borderDash: [6, 4],
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        yAxisID: 'y'
+                    });
+                }
+
+                new Chart(ctx.getContext('2d'), {
+                    type: 'line',
+                    data: { labels: labels, datasets: datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: true, labels: { font: { size: 11 } } }
+                        },
+                        scales: {
+                            x: { ticks: { font: { size: 10 } } },
+                            y: {
+                                position: 'left',
+                                title: { display: true, text: firstParam + (unit ? ', ' + unit : ''), font: { size: 11 } },
+                                ticks: { font: { size: 10 } }
+                            },
+                            y1: {
+                                position: 'right',
+                                display: showFlow,
+                                title: { display: true, text: 'м³/с', font: { size: 11 } },
+                                ticks: { font: { size: 10 } },
+                                grid: { drawOnChartArea: false }
+                            }
                         }
-                        pm.options.set('visible', visible);
-                    });
+                    }
                 });
-            });
+            }
 
-            // Загружаем все три слоя
-            loadLayer('own');
-            loadLayer('flow');
-            loadLayer('avg');
+            // ---------- Точки ----------
+            function buildPoints() {
+                Object.keys(stations).forEach(function (sid) {
+                    var st = stations[sid];
+                    var pm = new ymaps.Placemark(
+                        st.coords,
+                        {
+                            hintContent: (st.river || '') + ' — ' + (st.name || sid),
+                            balloonContent: buildBalloon(st)
+                        },
+                        {
+                            preset: 'islands#circleIcon',
+                            iconColor: '#1976d2',
+                            iconCircleRadius: 9,
+                            balloonMaxWidth: 580,
+                            balloonPanelMaxMapArea: 0
+                        }
+                    );
 
-            // Добавляем коллекции на карту
-            Object.keys(layerData).forEach(function (k) {
-                myMap.geoObjects.add(layerData[k].collection);
-            });
+                    // После открытия балуна — построить график
+                    pm.events.add('balloonopen', function () {
+                        setTimeout(function () {
+                            var canvases = document.querySelectorAll('.balloon-content canvas');
+                            if (!canvases.length) return;
+                            var last = canvases[canvases.length - 1];
+                            renderChart(last.id);
+                        }, 80);
+                    });
 
-            // Переключатели слоёв
-            document.getElementById('chk_own').addEventListener('change', function (e) {
-                layerData.own.collection.options.set('visible', e.target.checked);
-            });
-            document.getElementById('chk_flow').addEventListener('change', function (e) {
-                layerData.flow.collection.options.set('visible', e.target.checked);
-            });
-            document.getElementById('chk_avg').addEventListener('change', function (e) {
-                layerData.avg.collection.options.set('visible', e.target.checked);
-            });
+                    placemarks[sid] = pm;
+                    myMap.geoObjects.add(pm);
+                });
+            }
 
-            // По умолчанию только "own"
-            layerData.flow.collection.options.set('visible', false);
-            layerData.avg.collection.options.set('visible', false);
+            // ---------- Старт ----------
+            Promise.all(FILES.map(loadFile)).then(function () {
+                buildPanel();
+                buildPoints();
+                recomputeAvailable();
+            }).catch(function (err) { console.error('Ошибка загрузки:', err); });
+
+            document.getElementById('btnClear').addEventListener('click', function () {
+                activeParams = {};
+                availableParams = null;
+                document.querySelectorAll('#groupsContainer input[type=checkbox]').forEach(function (cb) {
+                    cb.checked = false; cb.disabled = false;
+                    cb.closest('.param-row').classList.remove('active', 'disabled');
+                });
+                applyFilter();
+                refreshBalloons();
+            });
         });
     </script>
 </body>
