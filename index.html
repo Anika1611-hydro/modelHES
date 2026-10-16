@@ -43,11 +43,11 @@
         .balloon-content { font-size: 14px; max-width: 620px; }
         .balloon-content h3 { margin: 0 0 4px 0; font-size: 17px; }
         .balloon-content .river { color: #555; font-size: 13px; margin-bottom: 8px; }
-        .balloon-content .hint { color: #999; font-size: 13px; font-style: italic; }
+        .balloon-content .hint { color: #999; font-size: 13px; font-style: italic; margin-bottom: 8px; }
         .balloon-table { border-collapse: collapse; font-size: 13px; width: 100%; margin-bottom: 10px; }
         .balloon-table td { border: 1px solid #ddd; padding: 4px 8px; }
         .balloon-table td:first-child { background: #f5f5f5; font-weight: bold; white-space: nowrap; }
-        .chart-wrapper { width: 580px; height: 300px; }
+        .chart-wrapper { width: 580px; height: 320px; }
         .legend { font-size: 12px; color: #666; margin-bottom: 6px; }
         .legend span { display: inline-block; margin-right: 12px; }
         .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
@@ -239,6 +239,7 @@
 
             var chartCounter = 0;
 
+            // ---------- Балун: расход всегда, химия при выборе ----------
             function buildBalloon(st) {
                 var html = '<div class="balloon-content">';
                 html += '<h3>' + (st.river || '') + ' — ' + (st.name || st.station_id) + '</h3>';
@@ -246,29 +247,25 @@
                 var selected = Object.keys(activeParams);
                 var flowPoints = st.measurements.filter(function (m) { return m.param === 'расход воды'; });
                 var hasFlow = flowPoints.length > 0;
-                var hasPdk = false;
 
-                if (selected.length === 0) {
-                    html += '<div class="hint">Выберите параметр в панели, чтобы увидеть данные</div>';
-                    if (hasFlow) {
-                        html += '<div class="legend">';
-                        html += '<span><span class="dot" style="background:#43a047"></span>есть данные по расходу воды (' + flowPoints.length + ')</span>';
-                        html += '</div>';
-                    }
-                    html += '</div>';
-                    return html;
-                }
-
+                // Химия по выбранным параметрам
                 var filtered = st.measurements.filter(function (m) {
                     return activeParams[m.param] && m.param !== 'расход воды';
                 });
 
-                if (filtered.length === 0 && !hasFlow) {
-                    html += '<div class="hint">На этой станции нет выбранных параметров</div>';
+                // Ничего не выбрано и расхода нет → просто подсказка
+                if (selected.length === 0 && !hasFlow) {
+                    html += '<div class="hint">Выберите параметр в панели, чтобы увидеть данные</div>';
                     html += '</div>';
                     return html;
                 }
 
+                // Если ничего не выбрано, но есть расход — подсказка + сразу график
+                if (selected.length === 0 && hasFlow) {
+                    html += '<div class="hint">Показан только расход воды. Выберите параметр в панели, чтобы добавить химию.</div>';
+                }
+
+                // Статистика
                 var byParam = {};
                 filtered.forEach(function (m) {
                     if (!byParam[m.param]) byParam[m.param] = { count: 0, min: Infinity, max: -Infinity, unit: m.unit };
@@ -280,6 +277,7 @@
                     }
                 });
 
+                // Таблица химии
                 if (Object.keys(byParam).length > 0) {
                     html += '<table class="balloon-table">';
                     html += '<tr><td>Параметр</td><td>N</td><td>Мин</td><td>Макс</td><td>Ед.</td></tr>';
@@ -292,6 +290,21 @@
                     html += '</table>';
                 }
 
+                // Отдельная таблица по расходу
+                if (hasFlow) {
+                    var fv = flowPoints.map(function (m) { return parseFloat(m.value); }).filter(function (v) { return !isNaN(v); });
+                    if (fv.length > 0) {
+                        var fmin = Math.min.apply(null, fv);
+                        var fmax = Math.max.apply(null, fv);
+                        var favg = (fv.reduce(function (a, b) { return a + b; }, 0) / fv.length);
+                        html += '<table class="balloon-table">';
+                        html += '<tr><td>Параметр</td><td>N</td><td>Мин</td><td>Средн.</td><td>Макс</td><td>Ед.</td></tr>';
+                        html += '<tr><td>расход воды</td><td>' + fv.length + '</td><td>' + fmin.toFixed(2) + '</td><td>' + favg.toFixed(2) + '</td><td>' + fmax.toFixed(2) + '</td><td>м³/с</td></tr>';
+                        html += '</table>';
+                    }
+                }
+
+                // Легенда
                 html += '<div class="legend">';
                 var idx = 0;
                 selected.forEach(function (p) {
@@ -312,6 +325,7 @@
                 return html;
             }
 
+            // ---------- График: расход всегда, химия — по выбору ----------
             function renderChart(canvasId) {
                 var payload = (window.__pendingCharts || {})[canvasId];
                 if (!payload) return;
@@ -323,6 +337,7 @@
                 var selected = payload.selected;
                 var flowPoints = payload.flowPoints || [];
 
+                // Собираем все даты из химии и расхода
                 var allDates = {};
                 filtered.forEach(function (m) { if (m.date) allDates[m.date] = true; });
                 flowPoints.forEach(function (m) { if (m.date) allDates[m.date] = true; });
@@ -331,6 +346,7 @@
                 var datasets = [];
                 var colorIdx = 0;
 
+                // Химия по каждому выбранному параметру
                 selected.forEach(function (param) {
                     var points = filtered.filter(function (m) { return m.param === param; });
                     if (points.length === 0) return;
@@ -352,6 +368,7 @@
                     colorIdx++;
                 });
 
+                // Расход — всегда, если есть
                 if (flowPoints.length > 0) {
                     var flowData = labels.map(function (d) {
                         var fp = flowPoints.find(function (m) { return m.date === d; });
@@ -431,9 +448,11 @@
                         }, 80);
                     });
                     placemarks[sid] = pm;
-                    myMap.geoObjects.add(pm);
+                    myGeoObjectsAdd(pm);
                 });
             }
+
+            function myGeoObjectsAdd(pm) { myMap.geoObjects.add(pm); }
 
             Promise.all(FILES.map(loadFile)).then(function () {
                 buildPanel();
