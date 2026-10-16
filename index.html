@@ -97,6 +97,10 @@
                 '#2e7d32', '#f9a825', '#4e342e', '#37474f', '#ad1457'
             ];
 
+            var chartCounter = 0;
+            var openBalloonStationId = null;
+            var activeCharts = {};
+
             // ---------- Загрузка ----------
             function loadFile(cfg) {
                 return fetch(cfg.url).then(function (r) { return r.json(); }).then(function (data) {
@@ -231,15 +235,24 @@
                 });
             }
 
+            // ---------- Балун ----------
             function refreshBalloons() {
                 Object.keys(placemarks).forEach(function (sid) {
                     placemarks[sid].properties.set('balloonContent', buildBalloon(stations[sid]));
                 });
+                if (openBalloonStationId && placemarks[openBalloonStationId]) {
+                    setTimeout(function () {
+                        var opened = placemarks[openBalloonStationId];
+                        if (opened.balloon && opened.balloon.isOpen && opened.balloon.isOpen()) {
+                            var canvases = document.querySelectorAll('.balloon-content canvas');
+                            if (!canvases.length) return;
+                            var last = canvases[canvases.length - 1];
+                            renderChart(last.id);
+                        }
+                    }, 100);
+                }
             }
 
-            var chartCounter = 0;
-
-            // ---------- Балун: расход всегда, химия при выборе ----------
             function buildBalloon(st) {
                 var html = '<div class="balloon-content">';
                 html += '<h3>' + (st.river || '') + ' — ' + (st.name || st.station_id) + '</h3>';
@@ -248,24 +261,20 @@
                 var flowPoints = st.measurements.filter(function (m) { return m.param === 'расход воды'; });
                 var hasFlow = flowPoints.length > 0;
 
-                // Химия по выбранным параметрам
                 var filtered = st.measurements.filter(function (m) {
                     return activeParams[m.param] && m.param !== 'расход воды';
                 });
 
-                // Ничего не выбрано и расхода нет → просто подсказка
                 if (selected.length === 0 && !hasFlow) {
                     html += '<div class="hint">Выберите параметр в панели, чтобы увидеть данные</div>';
                     html += '</div>';
                     return html;
                 }
 
-                // Если ничего не выбрано, но есть расход — подсказка + сразу график
                 if (selected.length === 0 && hasFlow) {
                     html += '<div class="hint">Показан только расход воды. Выберите параметр в панели, чтобы добавить химию.</div>';
                 }
 
-                // Статистика
                 var byParam = {};
                 filtered.forEach(function (m) {
                     if (!byParam[m.param]) byParam[m.param] = { count: 0, min: Infinity, max: -Infinity, unit: m.unit };
@@ -277,7 +286,6 @@
                     }
                 });
 
-                // Таблица химии
                 if (Object.keys(byParam).length > 0) {
                     html += '<table class="balloon-table">';
                     html += '<tr><td>Параметр</td><td>N</td><td>Мин</td><td>Макс</td><td>Ед.</td></tr>';
@@ -290,7 +298,6 @@
                     html += '</table>';
                 }
 
-                // Отдельная таблица по расходу
                 if (hasFlow) {
                     var fv = flowPoints.map(function (m) { return parseFloat(m.value); }).filter(function (v) { return !isNaN(v); });
                     if (fv.length > 0) {
@@ -304,7 +311,6 @@
                     }
                 }
 
-                // Легенда
                 html += '<div class="legend">';
                 var idx = 0;
                 selected.forEach(function (p) {
@@ -325,19 +331,23 @@
                 return html;
             }
 
-            // ---------- График: расход всегда, химия — по выбору ----------
+            // ---------- График ----------
             function renderChart(canvasId) {
                 var payload = (window.__pendingCharts || {})[canvasId];
                 if (!payload) return;
                 var canvas = document.getElementById(canvasId);
                 if (!canvas) return;
 
+                if (activeCharts[canvasId]) {
+                    activeCharts[canvasId].destroy();
+                    delete activeCharts[canvasId];
+                }
+
                 var st = payload.st;
                 var filtered = payload.filtered;
                 var selected = payload.selected;
                 var flowPoints = payload.flowPoints || [];
 
-                // Собираем все даты из химии и расхода
                 var allDates = {};
                 filtered.forEach(function (m) { if (m.date) allDates[m.date] = true; });
                 flowPoints.forEach(function (m) { if (m.date) allDates[m.date] = true; });
@@ -346,7 +356,6 @@
                 var datasets = [];
                 var colorIdx = 0;
 
-                // Химия по каждому выбранному параметру
                 selected.forEach(function (param) {
                     var points = filtered.filter(function (m) { return m.param === param; });
                     if (points.length === 0) return;
@@ -368,7 +377,6 @@
                     colorIdx++;
                 });
 
-                // Расход — всегда, если есть
                 if (flowPoints.length > 0) {
                     var flowData = labels.map(function (d) {
                         var fp = flowPoints.find(function (m) { return m.date === d; });
@@ -391,7 +399,7 @@
 
                 var showFlow = datasets.some(function (d) { return d.yAxisID === 'y1'; });
 
-                new Chart(canvas.getContext('2d'), {
+                activeCharts[canvasId] = new Chart(canvas.getContext('2d'), {
                     type: 'line',
                     data: { labels: labels, datasets: datasets },
                     options: {
@@ -421,6 +429,7 @@
                 });
             }
 
+            // ---------- Точки ----------
             function buildPoints() {
                 Object.keys(stations).forEach(function (sid) {
                     var st = stations[sid];
@@ -439,7 +448,9 @@
                             balloonPanelMaxMapArea: 0
                         }
                     );
+
                     pm.events.add('balloonopen', function () {
+                        openBalloonStationId = sid;
                         setTimeout(function () {
                             var canvases = document.querySelectorAll('.balloon-content canvas');
                             if (!canvases.length) return;
@@ -447,12 +458,15 @@
                             renderChart(last.id);
                         }, 80);
                     });
+
+                    pm.events.add('balloonclose', function () {
+                        if (openBalloonStationId === sid) openBalloonStationId = null;
+                    });
+
                     placemarks[sid] = pm;
-                    myGeoObjectsAdd(pm);
+                    myMap.geoObjects.add(pm);
                 });
             }
-
-            function myGeoObjectsAdd(pm) { myMap.geoObjects.add(pm); }
 
             Promise.all(FILES.map(loadFile)).then(function () {
                 buildPanel();
