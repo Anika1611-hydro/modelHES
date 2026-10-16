@@ -74,13 +74,12 @@
 
             var GROUPS = {
                 'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
-                'Металлы': ['Cu', 'Feобщ', 'Feраств​', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
-                'Физико-химические': ['pH', 'Жₒ', 'PO₄³⁻', 'ХПК', 'БПК5', 'ПМО']
+                'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
+                'Физико-химические': ['pH', 'рН', 'Жₒ', 'PO₄³⁻', 'ХПК', 'БПК5', 'ПМО']
             };
 
-            // Цвета точек
-            var COLOR_WITH_FLOW = '#1976d2';    // синий — есть расходы
-            var COLOR_ONLY_OWN  = '#f57c00';    // оранжевый — только собственные измерения
+            var COLOR_WITH_FLOW = '#1976d2';
+            var COLOR_ONLY_OWN  = '#f57c00';
 
             var stations = {};
             var placemarks = {};
@@ -89,28 +88,16 @@
             var availableParams = null;
 
             var FILES = [
-                { url: 'stations_own.geojson',  prefix: 'own_',  dateField: 'own_date' },
-                { url: 'stations_flow.geojson', prefix: 'flow_', dateField: 'flow_date' },
-                { url: 'stations_avg.geojson',  prefix: 'avg_',  dateField: 'avg_year' }
+                { url: 'stations_unified.geojson',   role: 'chemistry', dateField: 'date' },
+                { url: 'stations_discharge.geojson', role: 'discharge', dateField: 'date' }
             ];
-
-            // ⚠️ СЛОВАРЬ СООТВЕТСТВИЙ station_id.
-            // Ключ — ID из файла расходов (LUGA_discharge_monthly.geojson).
-            // Значение — ID, под которым эта же точка хранится в гидрохимических файлах.
-            // Если у тебя ID совпадают — оставь как есть, ничего не сломается.
-            // Если не совпадают — впиши правильные пары.
-            var DISCHARGE_ID_MAP = {
-                'LUGA_KING': 'LUGA_KING',   // ← поменяй значение на реальный ID в гидрохимии
-                'LUGA_SHAL': 'LUGA_SHAL',   // ← то же самое
-                'LUGA_LUGA': 'LUGA_LUGA'    // ← то же самое
-            };
 
             var PALETTE = [
                 '#1976d2', '#e65100', '#6a1b9a', '#00838f', '#c62828',
                 '#2e7d32', '#f9a825', '#4e342e', '#37474f', '#ad1457'
             ];
 
-            // ---------- Загрузка гидрохимии ----------
+            // ---------- Загрузка ----------
             function loadFile(cfg) {
                 return fetch(cfg.url).then(function (r) { return r.json(); }).then(function (data) {
                     data.features.forEach(function (feat) {
@@ -126,63 +113,32 @@
                                 hasDischarge: false
                             };
                         }
-                        var param = p[cfg.prefix + 'parameter'];
-                        var value = p[cfg.prefix + 'value'];
-                        if (param && value !== undefined && value !== null && value !== '') {
-                            stations[sid].measurements.push({
-                                source: cfg.prefix.replace('_',''),
-                                param: param,
-                                value: value,
-                                unit: p[cfg.prefix + 'unit'] || '',
-                                date: p[cfg.dateField] || '',
-                                pdk: cfg.prefix === 'flow_' ? p['flow_pdk'] : null,
-                                flow: cfg.prefix === 'flow_' ? p['flow_flow'] : null
-                            });
-                            if (!allParams[param]) allParams[param] = {};
-                            allParams[param][sid] = true;
-                        }
-                    });
-                });
-            }
-
-            // ---------- Загрузка расходов ----------
-            function loadDischarge() {
-                return fetch('LUGA_discharge_monthly.geojson')
-                    .then(function (r) { return r.json(); })
-                    .then(function (data) {
-                        data.features.forEach(function (feat) {
-                            var p = feat.properties;
-                            var rawId = p.station_id;
-                            // Переводим ID из расходного файла в ID гидрохимического
-                            var sid = DISCHARGE_ID_MAP[rawId] || rawId;
-
-                            // Если такой точки ещё нет — создаём на координатах из расходного файла
-                            if (!stations[sid]) {
-                                stations[sid] = {
-                                    station_id: sid,
-                                    name: p.name || sid,
-                                    river: 'р. Луга',
-                                    coords: feat.geometry.coordinates,
-                                    measurements: [],
-                                    hasDischarge: false
-                                };
+                        if (cfg.role === 'chemistry') {
+                            if (p.parameter && p.value !== null && p.value !== undefined && p.value !== '') {
+                                stations[sid].measurements.push({
+                                    source: p.source || '',
+                                    param: p.parameter,
+                                    value: p.value,
+                                    unit: p.unit || '',
+                                    date: p.date || ''
+                                });
+                                if (!allParams[p.parameter]) allParams[p.parameter] = {};
+                                allParams[p.parameter][sid] = true;
                             }
-                            stations[sid].hasDischarge = true;
-
-                            var measurements = p.measurements || [];
-                            measurements.forEach(function (m) {
+                        } else if (cfg.role === 'discharge') {
+                            if (p.value !== null && p.value !== undefined && p.value !== '') {
                                 stations[sid].measurements.push({
                                     source: 'discharge',
                                     param: 'расход воды',
-                                    value: m.value,
-                                    unit: m.unit || 'м3/с',
-                                    date: m.date,
-                                    pdk: null,
-                                    flow: null
+                                    value: p.value,
+                                    unit: p.unit || 'м3/с',
+                                    date: p.date || ''
                                 });
-                            });
-                        });
+                                stations[sid].hasDischarge = true;
+                            }
+                        }
                     });
+                });
             }
 
             // ---------- Панель ----------
@@ -259,14 +215,12 @@
                 });
             }
 
-            // ---------- Фильтр ----------
             function applyFilter() {
                 var hasFilter = Object.keys(activeParams).length > 0;
                 Object.keys(placemarks).forEach(function (sid) {
                     var pm = placemarks[sid];
                     var st = stations[sid];
                     var baseColor = st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN;
-
                     if (!hasFilter) {
                         pm.options.set({ iconColor: baseColor, opacity: 1 });
                         return;
@@ -277,7 +231,6 @@
                 });
             }
 
-            // ---------- Балун ----------
             function refreshBalloons() {
                 Object.keys(placemarks).forEach(function (sid) {
                     placemarks[sid].properties.set('balloonContent', buildBalloon(stations[sid]));
@@ -293,9 +246,7 @@
                 var selected = Object.keys(activeParams);
                 var flowPoints = st.measurements.filter(function (m) { return m.param === 'расход воды'; });
                 var hasFlow = flowPoints.length > 0;
-                var hasPdk = st.measurements.some(function (m) {
-                    return activeParams[m.param] && m.pdk !== null && m.pdk !== undefined && m.pdk !== '';
-                });
+                var hasPdk = false;
 
                 if (selected.length === 0) {
                     html += '<div class="hint">Выберите параметр в панели, чтобы увидеть данные</div>';
@@ -350,7 +301,6 @@
                     }
                 });
                 if (hasFlow) html += '<span><span class="dot" style="background:#43a047"></span>расход воды</span>';
-                if (hasPdk)  html += '<span><span class="dot" style="background:#e53935"></span>ПДК</span>';
                 html += '</div>';
 
                 var canvasId = 'chart_' + (++chartCounter);
@@ -362,7 +312,6 @@
                 return html;
             }
 
-            // ---------- График ----------
             function renderChart(canvasId) {
                 var payload = (window.__pendingCharts || {})[canvasId];
                 if (!payload) return;
@@ -385,12 +334,10 @@
                 selected.forEach(function (param) {
                     var points = filtered.filter(function (m) { return m.param === param; });
                     if (points.length === 0) return;
-
                     var values = labels.map(function (d) {
                         var found = points.find(function (m) { return m.date === d; });
                         return found ? parseFloat(found.value) : null;
                     });
-
                     var unit = points[0].unit || '';
                     datasets.push({
                         label: param + (unit ? ', ' + unit : ''),
@@ -410,7 +357,6 @@
                         var fp = flowPoints.find(function (m) { return m.date === d; });
                         return fp ? parseFloat(fp.value) : null;
                     });
-
                     if (flowData.some(function (v) { return v !== null && !isNaN(v); })) {
                         datasets.push({
                             label: 'расход воды, м³/с',
@@ -425,22 +371,6 @@
                         });
                     }
                 }
-
-                selected.forEach(function (param) {
-                    var points = filtered.filter(function (m) { return m.param === param && m.pdk !== null && m.pdk !== undefined && m.pdk !== ''; });
-                    if (points.length === 0) return;
-                    var pdkVal = parseFloat(points[0].pdk);
-                    if (isNaN(pdkVal)) return;
-                    datasets.push({
-                        label: 'ПДК ' + param,
-                        data: labels.map(function () { return pdkVal; }),
-                        borderColor: '#e53935',
-                        borderDash: [6, 4],
-                        borderWidth: 2,
-                        pointRadius: 0,
-                        yAxisID: 'y'
-                    });
-                });
 
                 var showFlow = datasets.some(function (d) { return d.yAxisID === 'y1'; });
 
@@ -474,12 +404,10 @@
                 });
             }
 
-            // ---------- Точки ----------
             function buildPoints() {
                 Object.keys(stations).forEach(function (sid) {
                     var st = stations[sid];
                     var color = st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN;
-
                     var pm = new ymaps.Placemark(
                         st.coords,
                         {
@@ -494,7 +422,6 @@
                             balloonPanelMaxMapArea: 0
                         }
                     );
-
                     pm.events.add('balloonopen', function () {
                         setTimeout(function () {
                             var canvases = document.querySelectorAll('.balloon-content canvas');
@@ -503,21 +430,12 @@
                             renderChart(last.id);
                         }, 80);
                     });
-
                     placemarks[sid] = pm;
-                    myGeoObjectsAdd(pm);
+                    myMap.geoObjects.add(pm);
                 });
             }
 
-            function myGeoObjectsAdd(pm) {
-                myMap.geoObjects.add(pm);
-            }
-
-            // ---------- Старт ----------
-            Promise.all([
-                Promise.all(FILES.map(loadFile)),
-                loadDischarge()
-            ]).then(function () {
+            Promise.all(FILES.map(loadFile)).then(function () {
                 buildPanel();
                 buildPoints();
                 recomputeAvailable();
