@@ -38,7 +38,6 @@
         }
         .btn:hover { background: #eee; }
         .btn-primary { background: #1976d2; color: white; border-color: #1976d2; font-weight: bold; }
-        .btn-primary:hover { background: #1565c0; }
 
         .sat-select {
             width: 100%; padding: 6px; margin-bottom: 10px;
@@ -87,8 +86,8 @@
         
         <h3 style="margin-top: 15px; border-bottom: none;">Спутниковые слои</h3>
         
-        <!-- Тестовый слой -->
-        <button class="btn" id="btnTestLayer" style="background: #e0f7fa;">Показать тестовый слой (Белый фон)</button>
+        <!-- Кнопка для теста с TIF-файлом -->
+        <button class="btn" id="btnTestLayer" style="background: #e0f7fa;">Тест: прозрачный TIF</button>
 
         <label class="sat-label" style="color: #2e7d32; margin-top: 10px;">NDVI водосбора</label>
         <select id="ndviSelect" class="sat-select"></select>
@@ -123,14 +122,13 @@
             });
 
             // --- 1. КОНТУР ВОДОСБОРА (ВШИТ В КОД) ---
-            // Убрали fetch, чтобы 100% работало
             var lugaBorderCoords = [
-                [59.6778, 28.1074], [59.6724, 28.2134], [59.6462, 28.3480], [59.6107, 28.4529], 
-                [59.5532, 28.5201], [59.4811, 28.5569], [59.3941, 28.5426], [59.3180, 28.4924], 
-                [59.2631, 28.4108], [59.2266, 28.3088], [59.2111, 28.1935], [59.2197, 28.0742], 
-                [59.2529, 27.9545], [59.3107, 27.8430], [59.3899, 27.7499], [59.4844, 27.6882], 
-                [59.5812, 27.6702], [59.6644, 27.7053], [59.7166, 27.7881], [59.7366, 27.9023], 
-                [59.7204, 28.0169], [59.6778, 28.1074]
+                [59.677, 28.107], [59.672, 28.213], [59.646, 28.348], [59.611, 28.453], 
+                [59.553, 28.520], [59.481, 28.557], [59.394, 28.543], [59.318, 28.492], 
+                [59.263, 28.411], [59.227, 28.309], [59.211, 28.194], [59.220, 28.074], 
+                [59.253, 27.955], [59.311, 27.843], [59.390, 27.750], [59.484, 27.688], 
+                [59.581, 27.670], [59.664, 27.705], [59.717, 27.788], [59.737, 27.902], 
+                [59.720, 28.017]
             ];
             
             var watershedBorder = new ymaps.GeoObject({
@@ -142,34 +140,31 @@
                 else myMap.geoObjects.remove(watershedBorder);
             });
 
-            // --- 2. СЛОИ С ПРОЗРАЧНОСТЬЮ (ymaps.Layer) ---
+            // --- 2. СЛОИ С КАРТИНКАМИ ---
             var basinBounds = [[58.5086, 28.1064], [59.6783, 30.2413]];
-            var testLayer = null;
-            var ndviLayer = null;
-            var precipLayer = null;
+            var testLayer = null, ndviLayer = null, precipLayer = null;
 
-            function addImageLayer(url, layerVar) {
-                // Удаляем старый
-                if (layerVar) myMap.layers.remove(layerVar);
-
-                // Создаем слой-картинку
-                var layer = new ymaps.Layer(url, {
-                    transparent: true, // МАГИЯ: делает белый цвет прозрачным
-                    projection: ymaps.projection.wgs84Mercator
+            // Функция добавления картинки как прямоугольника
+            function addRectLayer(url, layerVar) {
+                if (layerVar) myMap.geoObjects.remove(layerVar);
+                
+                var layer = new ymaps.GeoObject({
+                    geometry: { type: "Rectangle", coordinates: basinBounds }
+                }, {
+                    fillImage: { href: url, opacity: 0.9 },
+                    stroke: false
                 });
-                layer.options.set('bounds', basinBounds);
-                layer.options.set('opacity', 0.8);
 
-                myMap.layers.add(layer);
+                myMap.geoObjects.add(layer);
                 return layer;
             }
 
             // Тестовая кнопка
             document.getElementById('btnTestLayer').addEventListener('click', function() {
-                testLayer = addImageLayer('test_white.png', testLayer);
+                testLayer = addRectLayer('test_transparent.tif', testLayer);
             });
 
-            // Выпадающие списки
+            // Списки
             function populateSelects() {
                 var selectNdvi = document.getElementById('ndviSelect');
                 var selectPrecip = document.getElementById('precipSelect');
@@ -187,13 +182,13 @@
             populateSelects();
 
             document.getElementById('ndviSelect').addEventListener('change', function(e) {
-                if (e.target.value === 'none') { if(ndviLayer) myMap.layers.remove(ndviLayer); ndviLayer = null; return; }
-                ndviLayer = addImageLayer('NDVI_Years/luga_ndvi_' + e.target.value + '.png', ndviLayer);
+                if (e.target.value === 'none') { if(ndviLayer) myMap.geoObjects.remove(ndviLayer); ndviLayer = null; return; }
+                ndviLayer = addRectLayer('NDVI_Years/luga_ndvi_' + e.target.value + '.png', ndviLayer);
             });
 
             document.getElementById('precipSelect').addEventListener('change', function(e) {
-                if (e.target.value === 'none') { if(precipLayer) myMap.layers.remove(precipLayer); precipLayer = null; return; }
-                precipLayer = addImageLayer('Precip_Years/luga_precip_' + e.target.value + '.png', precipLayer);
+                if (e.target.value === 'none') { if(precipLayer) myMap.geoObjects.remove(precipLayer); precipLayer = null; return; }
+                precipLayer = addRectLayer('Precip_Years/luga_precip_' + e.target.value + '.png', precipLayer);
             });
 
             // --- 3. ХИМИЯ (БЕЗ ИЗМЕНЕНИЙ) ---
@@ -397,11 +392,11 @@
                 document.querySelectorAll('#groupsContainer input[type=checkbox]').forEach(cb => { cb.checked = false; cb.disabled = false; cb.closest('.param-row').classList.remove('active', 'disabled'); });
                 applyFilter(); refreshBalloons();
             });
-
-            // Запускаем загрузку климата
-            fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
+            
+            // Запускаем климат
             var climateData = [];
             var bigNdviChart = null, bigPrecipChart = null;
+            fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
             document.getElementById('btnClimate').addEventListener('click', function() {
                 document.getElementById('climateModal').style.display = 'flex';
                 if (!bigNdviChart && climateData.length > 0) {
