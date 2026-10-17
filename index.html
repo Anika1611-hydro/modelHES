@@ -74,8 +74,8 @@
         .modal-charts { display: flex; gap: 20px; margin-top: 20px; }
         .modal-chart-box { flex: 1; height: 350px; }
 
-        /* МАГИЯ: убираем черный фон у картинок */
-        .ymaps-2-1-79-ground-pane { mix-blend-mode: multiply; }
+        /* ФИКС ПРОЗРАЧНОСТИ: отсекаем черный цвет */
+        .ymaps-2-1-79-ground-pane { mix-blend-mode: screen; }
     </style>
     <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091"></script>
 </head>
@@ -133,7 +133,6 @@
                 
                 var html = '<option value="none">-- Скрыть --</option>';
                 
-                // Цикл с 2023 по 2008 (новые сверху)
                 for (var y = 2023; y >= 2008; y--) {
                     html += '<optgroup label="' + y + ' год">';
                     seasons.forEach(function(s) {
@@ -154,15 +153,26 @@
             fetch('luga_watershed.geojson')
                 .then(res => res.json())
                 .then(data => {
+                    // Берем геометрию. Если это MultiPolygon, Yandex может ругаться, поэтому мы приводим к Polygon
+                    var geomType = data.features[0].geometry.type;
+                    var coords = data.features[0].geometry.coordinates;
+                    
+                    if (geomType === 'MultiPolygon') {
+                        coords = coords[0]; // Берем первый полигон из мультиполигона
+                    }
+
                     watershedBorder = new ymaps.GeoObject({
-                        geometry: { type: "Polygon", coordinates: data.features[0].geometry.coordinates }
+                        geometry: { type: "Polygon", coordinates: coords }
                     }, { fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash' });
-                });
+                })
+                .catch(err => console.error('Ошибка загрузки контура:', err));
 
             document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
                 if (watershedBorder) {
                     if (e.target.checked) myMap.geoObjects.add(watershedBorder);
                     else myMap.geoObjects.remove(watershedBorder);
+                } else {
+                    alert('Контур еще не загрузился или файл не найден!');
                 }
             });
 
@@ -180,7 +190,7 @@
                 var layer = new ymaps.GeoObject({
                     geometry: { type: "Rectangle", coordinates: basinBounds }
                 }, {
-                    fillImage: { href: folder + fileName, opacity: 0.9 },
+                    fillImage: { href: folder + fileName, opacity: 1 }, // opacity: 1, прозрачность делает CSS
                     stroke: false
                 });
 
