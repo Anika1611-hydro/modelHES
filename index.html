@@ -86,8 +86,7 @@
         
         <h3 style="margin-top: 15px; border-bottom: none;">Спутниковые слои</h3>
         
-        <!-- Кнопка для теста с TIF-файлом -->
-        <button class="btn" id="btnTestLayer" style="background: #e0f7fa;">Тест: прозрачный TIF</button>
+        <button class="btn" id="btnTestLayer" style="background: #e0f7fa;">Тест: цветной слой</button>
 
         <label class="sat-label" style="color: #2e7d32; margin-top: 10px;">NDVI водосбора</label>
         <select id="ndviSelect" class="sat-select"></select>
@@ -121,37 +120,52 @@
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
-            // --- 1. КОНТУР ВОДОСБОРА (ВШИТ В КОД) ---
-            var lugaBorderCoords = [
-                [59.677, 28.107], [59.672, 28.213], [59.646, 28.348], [59.611, 28.453], 
-                [59.553, 28.520], [59.481, 28.557], [59.394, 28.543], [59.318, 28.492], 
-                [59.263, 28.411], [59.227, 28.309], [59.211, 28.194], [59.220, 28.074], 
-                [59.253, 27.955], [59.311, 27.843], [59.390, 27.750], [59.484, 27.688], 
-                [59.581, 27.670], [59.664, 27.705], [59.717, 27.788], [59.737, 27.902], 
-                [59.720, 28.017]
-            ];
-            
-            var watershedBorder = new ymaps.GeoObject({
-                geometry: { type: "Polygon", coordinates: [lugaBorderCoords] }
-            }, { fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash' });
+            // --- 1. ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+            var realBorderCoords = []; // Сюда загрузим идеальные координаты из GeoJSON
+            var watershedBorder = null;
 
+            // Загружаем настоящий GeoJSON
+            fetch('luga_watershed.geojson')
+                .then(res => res.json())
+                .then(data => {
+                    var coords = data.features[0].geometry.coordinates;
+                    if (data.features[0].geometry.type === 'MultiPolygon') coords = coords[0];
+                    
+                    // Для Яндекса полигон это [lat, lon]
+                    realBorderCoords = coords.map(function(coord) {
+                        return [coord[1], coord[0]]; 
+                    });
+
+                    watershedBorder = new ymaps.GeoObject({
+                        geometry: { type: "Polygon", coordinates: [realBorderCoords] }
+                    }, { fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash' });
+                    
+                    console.log("Контур успешно загружен.");
+                })
+                .catch(err => console.error("Ошибка загрузки:", err));
+
+            // Галочка контура
             document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
-                if (e.target.checked) myMap.geoObjects.add(watershedBorder);
-                else myMap.geoObjects.remove(watershedBorder);
+                if (watershedBorder) {
+                    if (e.target.checked) myMap.geoObjects.add(watershedBorder);
+                    else myMap.geoObjects.remove(watershedBorder);
+                }
             });
 
-            // --- 2. СЛОИ С КАРТИНКАМИ ---
-            var basinBounds = [[58.5086, 28.1064], [59.6783, 30.2413]];
+            // --- 2. СЛОИ С КАРТИНКАМИ (ВНУТРИ ПОЛИГОНА) ---
             var testLayer = null, ndviLayer = null, precipLayer = null;
 
-            // Функция добавления картинки как прямоугольника
-            function addRectLayer(url, layerVar) {
+            function addImageLayer(url, layerVar) {
                 if (layerVar) myMap.geoObjects.remove(layerVar);
-                
+                if (realBorderCoords.length === 0) { alert("Контур еще грузится..."); return null; }
+
                 var layer = new ymaps.GeoObject({
-                    geometry: { type: "Rectangle", coordinates: basinBounds }
+                    geometry: { 
+                        type: "Polygon", 
+                        coordinates: [realBorderCoords] // Яндекс обрежет картинку по этому контуру!
+                    }
                 }, {
-                    fillImage: { href: url, opacity: 0.9 },
+                    fillImage: { href: url, opacity: 0.8 },
                     stroke: false
                 });
 
@@ -161,7 +175,7 @@
 
             // Тестовая кнопка
             document.getElementById('btnTestLayer').addEventListener('click', function() {
-                testLayer = addRectLayer('test_transparent.tif', testLayer);
+                testLayer = addImageLayer('test_ndvi.png', testLayer);
             });
 
             // Списки
@@ -183,12 +197,12 @@
 
             document.getElementById('ndviSelect').addEventListener('change', function(e) {
                 if (e.target.value === 'none') { if(ndviLayer) myMap.geoObjects.remove(ndviLayer); ndviLayer = null; return; }
-                ndviLayer = addRectLayer('NDVI_Years/luga_ndvi_' + e.target.value + '.png', ndviLayer);
+                ndviLayer = addImageLayer('NDVI_Years/luga_ndvi_' + e.target.value + '.png', ndviLayer);
             });
 
             document.getElementById('precipSelect').addEventListener('change', function(e) {
                 if (e.target.value === 'none') { if(precipLayer) myMap.geoObjects.remove(precipLayer); precipLayer = null; return; }
-                precipLayer = addRectLayer('Precip_Years/luga_precip_' + e.target.value + '.png', precipLayer);
+                precipLayer = addImageLayer('Precip_Years/luga_precip_' + e.target.value + '.png', precipLayer);
             });
 
             // --- 3. ХИМИЯ (БЕЗ ИЗМЕНЕНИЙ) ---
@@ -392,8 +406,8 @@
                 document.querySelectorAll('#groupsContainer input[type=checkbox]').forEach(cb => { cb.checked = false; cb.disabled = false; cb.closest('.param-row').classList.remove('active', 'disabled'); });
                 applyFilter(); refreshBalloons();
             });
-            
-            // Запускаем климат
+
+            // --- КЛИМАТ ---
             var climateData = [];
             var bigNdviChart = null, bigPrecipChart = null;
             fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
