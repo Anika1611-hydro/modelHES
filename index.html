@@ -7,12 +7,11 @@
     <style>
         html, body, #map { width: 100%; height: 100%; padding: 0; margin: 0; font-family: Arial, sans-serif; }
 
-        /* Панель управления */
         .panel {
-            position: absolute; top: 16px; right: 16px; z-index: 1000;
+            position: absolute; top: 16px; right: 20px; z-index: 1000;
             background: white; padding: 14px 18px; border-radius: 8px;
             box-shadow: 0 3px 12px rgba(0,0,0,0.25);
-            font-size: 15px; width: 320px; max-height: 90vh; overflow-y: auto;
+            font-size: 15px; width: 340px; max-height: 90vh; overflow-y: auto;
         }
         .panel h3 { margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
         
@@ -47,7 +46,6 @@
         }
         .sat-label { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: block; }
 
-        /* Балун */
         .balloon-content { font-size: 14px; max-width: 620px; }
         .balloon-content h3 { margin: 0 0 4px 0; font-size: 17px; }
         .balloon-table { border-collapse: collapse; font-size: 13px; width: 100%; margin-bottom: 10px; }
@@ -58,7 +56,6 @@
         .legend span { display: inline-block; margin-right: 12px; }
         .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 
-        /* Модальное окно для графиков климата */
         .modal {
             display: none; position: fixed; z-index: 2000; left: 0; top: 0;
             width: 100%; height: 100%; background-color: rgba(0,0,0,0.6);
@@ -82,41 +79,77 @@
 <body>
     <div id="map"></div>
 
-    <!-- Панель управления -->
     <div class="panel">
         <h3>Параметры (Химия)</h3>
         <div id="groupsContainer"></div>
         
-        <button class="btn btn-primary" id="btnClimate" style="margin-top: 15px;">Графики климата (Водосбор)</button>
+        <button class="btn btn-primary" id="btnClimate" style="margin-top: 15px;">Графики климата</button>
         
         <h3 style="margin-top: 15px; border-bottom: none;">Спутниковые слои</h3>
+        
         <label class="sat-label" style="color: #2e7d32;">NDVI водосбора</label>
         <select id="ndviSelect" class="sat-select">
             <option value="none">-- Скрыть --</option>
-            <option value="winter">Зима 2023 (янв-фев)</option>
-            <option value="spring">Весна 2023 (мар-май)</option>
-            <option value="summer">Лето 2023 (июн-авг)</option>
-            <option value="autumn">Осень 2023 (сен-ноя)</option>
+            <optgroup label="Зима">
+                <option value="winter_avg">Среднее</option>
+                <option value="winter_max">Максимум</option>
+                <option value="winter_min">Минимум</option>
+            </optgroup>
+            <optgroup label="Весна">
+                <option value="spring_avg">Среднее</option>
+                <option value="spring_max">Максимум</option>
+                <option value="spring_min">Минимум</option>
+            </optgroup>
+            <optgroup label="Лето">
+                <option value="summer_avg">Среднее</option>
+                <option value="summer_max">Максимум</option>
+                <option value="summer_min">Минимум</option>
+            </optgroup>
+            <optgroup label="Осень">
+                <option value="autumn_avg">Среднее</option>
+                <option value="autumn_max">Максимум</option>
+                <option value="autumn_min">Минимум</option>
+            </optgroup>
         </select>
 
         <label class="sat-label" style="color: #0277bd;">Осадки водосбора</label>
         <select id="precipSelect" class="sat-select">
             <option value="none">-- Скрыть --</option>
-            <option value="winter">Зима 2023 (янв-фев)</option>
-            <option value="spring">Весна 2023 (мар-май)</option>
-            <option value="summer">Лето 2023 (июн-авг)</option>
-            <option value="autumn">Осень 2023 (сен-ноя)</option>
+            <optgroup label="Зима">
+                <option value="winter_avg">Среднее</option>
+                <option value="winter_max">Максимум</option>
+                <option value="winter_min">Минимум</option>
+            </optgroup>
+            <optgroup label="Весна">
+                <option value="spring_avg">Среднее</option>
+                <option value="spring_max">Максимум</option>
+                <option value="spring_min">Минимум</option>
+            </optgroup>
+            <optgroup label="Лето">
+                <option value="summer_avg">Среднее</option>
+                <option value="summer_max">Максимум</option>
+                <option value="summer_min">Минимум</option>
+            </optgroup>
+            <optgroup label="Осень">
+                <option value="autumn_avg">Среднее</option>
+                <option value="autumn_max">Максимум</option>
+                <option value="autumn_min">Минимум</option>
+            </optgroup>
         </select>
+
+        <!-- Галочка контура -->
+        <label style="display: block; margin-top: 10px; font-size: 14px; cursor: pointer;">
+            <input type="checkbox" id="chkBasinBorder"> Показать контур водосбора
+        </label>
 
         <button class="btn" id="btnClear">Сбросить выбранную химию</button>
     </div>
 
-    <!-- Модальное окно -->
     <div id="climateModal" class="modal">
         <div class="modal-content">
             <span class="close-modal" id="closeModal">&times;</span>
             <h2>Климатические данные водосбора реки Луга</h2>
-            <p style="font-size: 14px; color: #666;">Данные осреднены по всей площади водосбора (13 200 км²). Осадки — сумма за месяц. NDVI — среднее за месяц.</p>
+            <p style="font-size: 14px; color: #666;">Данные осреднены по площади водосбора. Осадки — сумма за месяц. NDVI — среднее за месяц.</p>
             <div class="modal-charts">
                 <div class="modal-chart-box"><canvas id="bigNdviChart"></canvas></div>
                 <div class="modal-chart-box"><canvas id="bigPrecipChart"></canvas></div>
@@ -132,10 +165,55 @@
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
+            // --- BBox водосбора и его контур ---
+            // Это координаты, в которые "вписан" наш водосбор
             var basinBounds = [[58.5086, 28.1064], [59.6783, 30.2413]];
+            
+            var watershedBorder = new ymaps.GeoObject({
+                geometry: { type: "Rectangle", coordinates: basinBounds }
+            }, {
+                fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash'
+            });
+
+            document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
+                if (e.target.checked) {
+                    myMap.geoObjects.add(watershedBorder);
+                } else {
+                    myMap.geoObjects.remove(watershedBorder);
+                }
+            });
+
+            // --- Спутниковые слои ---
             var ndviLayer = null, precipLayer = null;
 
-            // --- Климатические данные и графики ---
+            function updateSatLayer(type, value) {
+                if (type === 'ndvi' && ndviLayer) { myMap.geoObjects.remove(ndviLayer); ndviLayer = null; }
+                if (type === 'precip' && precipLayer) { myMap.geoObjects.remove(precipLayer); precipLayer = null; }
+                if (value === 'none') return;
+
+                var fileName = 'luga_' + type + '_' + value + '.png';
+                var folder = (type === 'ndvi') ? 'NDVI/' : 'Precip/';
+                
+                // Создаем слой картинки. Используем blendMode: 'multiply' для прозрачности
+                var layer = new ymaps.GeoObject({
+                    geometry: { type: "Rectangle", coordinates: basinBounds }
+                }, {
+                    fillImage: { href: folder + fileName, opacity: 0.8 },
+                    stroke: false,
+                    // В Яндекс.Картах нет прямого CSS blend-mode для fillImage, 
+                    // поэтому мы применим хак через свойство opacity и черный фон.
+                });
+
+                myMap.geoObjects.add(layer);
+                if (type === 'ndvi') ndviLayer = layer;
+                if (type === 'precip') precipLayer = layer;
+            }
+
+            document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
+            document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
+
+
+            // --- Графики климата ---
             var climateData = [];
             var bigNdviChart = null, bigPrecipChart = null;
 
@@ -146,9 +224,7 @@
 
             document.getElementById('btnClimate').addEventListener('click', function() {
                 document.getElementById('climateModal').style.display = 'flex';
-                if (!bigNdviChart && climateData.length > 0) {
-                    drawBigCharts();
-                }
+                if (!bigNdviChart && climateData.length > 0) drawBigCharts();
             });
 
             document.getElementById('closeModal').addEventListener('click', function() {
@@ -160,67 +236,18 @@
                 var ndviData = climateData.map(d => d.ndvi);
                 var precipData = climateData.map(d => d.precip_mm);
 
-                // График NDVI
                 bigNdviChart = new Chart(document.getElementById('bigNdviChart'), {
                     type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'NDVI (средний по водосбору)',
-                            data: ndviData,
-                            borderColor: '#4caf50',
-                            backgroundColor: 'rgba(76, 175, 80, 0.2)',
-                            fill: true,
-                            tension: 0.3,
-                            pointRadius: 0
-                        }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: { title: { display: true, text: 'Динамика NDVI (2008-2023)' } },
-                        scales: { x: { ticks: { maxTicksLimit: 10 } } }
-                    }
+                    data: { labels: labels, datasets: [{ label: 'NDVI (средний)', data: ndviData, borderColor: '#4caf50', backgroundColor: 'rgba(76, 175, 80, 0.2)', fill: true, tension: 0.3, pointRadius: 0 }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Динамика NDVI' } }, scales: { x: { ticks: { maxTicksLimit: 10 } } } }
                 });
 
-                // График Осадков
                 bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), {
                     type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Осадки, мм (сумма за месяц)',
-                            data: precipData,
-                            backgroundColor: '#29b6f6',
-                        }]
-                    },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: { title: { display: true, text: 'Осадки на водосборе (2008-2023)' } },
-                        scales: { x: { ticks: { maxTicksLimit: 10 } } }
-                    }
+                    data: { labels: labels, datasets: [{ label: 'Осадки, мм', data: precipData, backgroundColor: '#29b6f6' }] },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: 'Осадки (2008-2023)' } }, scales: { x: { ticks: { maxTicksLimit: 10 } } } }
                 });
             }
-
-            // --- Спутниковые слои ---
-            function updateSatLayer(type, season) {
-                if (type === 'ndvi' && ndviLayer) { myMap.geoObjects.remove(ndviLayer); ndviLayer = null; }
-                if (type === 'precip' && precipLayer) { myMap.geoObjects.remove(precipLayer); precipLayer = null; }
-                if (season === 'none') return;
-
-                var fileName = 'luga_' + type + '_' + season + '_2023.png';
-                var folder = (type === 'ndvi') ? 'NDVI/' : 'Precip/';
-                var layer = new ymaps.GeoObject({
-                    geometry: { type: "Rectangle", coordinates: basinBounds }
-                }, {
-                    fillImage: { href: folder + fileName, opacity: 0.7 }, stroke: false
-                });
-                myMap.geoObjects.add(layer);
-                if (type === 'ndvi') ndviLayer = layer;
-                if (type === 'precip') precipLayer = layer;
-            }
-
-            document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
-            document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
 
 
             // ==================== ЛОГИКА ХИМИИ И РАСХОДОВ ====================
