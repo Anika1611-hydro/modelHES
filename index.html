@@ -118,7 +118,7 @@
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
-            // --- 1. ГЕНЕРАЦИЯ СПИСКОВ (с 2008 по 2023) ---
+            // --- 1. ГЕНЕРАЦИЯ СПИСКОВ ---
             function populateSelects() {
                 var selectNdvi = document.getElementById('ndviSelect');
                 var selectPrecip = document.getElementById('precipSelect');
@@ -135,23 +135,24 @@
             }
             populateSelects();
 
-            // --- 2. КОНТУР ВОДОСБОРА (через fetch) ---
-            var basinBounds = [[58.5086, 28.1064], [59.6783, 30.2413]];
+            // --- 2. КОНТУР ВОДОСБОРА (теперь координаты уже правильные) ---
             var watershedBorder = null;
             
             fetch('luga_watershed.geojson')
-                .then(res => res.json())
-                .then(data => {
+                .then(res => res.text())
+                .then(text => {
+                    var cleanText = text.replace(/^\uFEFF/, '');
+                    var data = JSON.parse(cleanText);
                     var coords = data.features[0].geometry.coordinates;
                     if (data.features[0].geometry.type === 'MultiPolygon') coords = coords[0];
                     
-                    var yandexCoords = coords.map(c => [c[1], c[0]]);
-                    
+                    // Тут мы НЕ переворачиваем координаты, так как они уже [lat, lon]
                     watershedBorder = new ymaps.GeoObject({
-                        geometry: { type: "Polygon", coordinates: [yandexCoords] }
+                        geometry: { type: "Polygon", coordinates: [coords] }
                     }, { fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash' });
                     
                     if(document.getElementById('chkBasinBorder').checked) myMap.geoObjects.add(watershedBorder);
+                    console.log("Контур загружен успешно!");
                 })
                 .catch(err => console.error("Ошибка контура:", err));
 
@@ -159,28 +160,32 @@
                 if (watershedBorder) {
                     if (e.target.checked) myMap.geoObjects.add(watershedBorder);
                     else myMap.geoObjects.remove(watershedBorder);
+                } else {
+                    alert("Контур еще не загрузился. Подождите.");
                 }
             });
 
-            // --- 3. СПУТНИКОВЫЕ СЛОИ (как Rectangle) ---
+            // --- 3. СПУТНИКОВЫЕ СЛОИ (ФИКС: используем Layer с bounds) ---
             var ndviLayer = null, precipLayer = null;
+            var basinBounds = [[59.21, 27.67], [59.74, 28.56]]; // BBox твоего водосбора
 
             function updateSatLayer(type, value) {
-                if (type === 'ndvi' && ndviLayer) { myMap.geoObjects.remove(ndviLayer); ndviLayer = null; }
-                if (type === 'precip' && precipLayer) { myMap.geoObjects.remove(precipLayer); precipLayer = null; }
+                if (type === 'ndvi' && ndviLayer) { myMap.layers.remove(ndviLayer); ndviLayer = null; }
+                if (type === 'precip' && precipLayer) { myMap.layers.remove(precipLayer); precipLayer = null; }
                 if (value === 'none') return;
 
                 var fileName = 'luga_' + type + '_' + value + '.png';
                 var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
                 
-                var layer = new ymaps.GeoObject({
-                    geometry: { type: "Rectangle", coordinates: basinBounds }
-                }, {
-                    fillImage: { href: folder + fileName, opacity: 0.8 },
-                    stroke: false
+                var layer = new ymaps.Layer(folder + fileName, {
+                    transparent: true, // Магия для прозрачности
+                    projection: ymaps.projection.wgs84Mercator
                 });
 
-                myMap.geoObjects.add(layer);
+                layer.options.set('bounds', basinBounds);
+                layer.options.set('opacity', 0.8);
+
+                myMap.layers.add(layer);
                 if (type === 'ndvi') ndviLayer = layer;
                 if (type === 'precip') precipLayer = layer;
             }
