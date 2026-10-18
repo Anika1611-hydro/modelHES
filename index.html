@@ -9,72 +9,36 @@
 
     <style>
         html, body, #map { width: 100%; height: 100%; padding: 0; margin: 0; font-family: Arial, sans-serif; }
-
-        .panel {
-            position: absolute; top: 16px; right: 20px; z-index: 1000;
-            background: white; padding: 14px 18px; border-radius: 8px;
-            box-shadow: 0 3px 12px rgba(0,0,0,0.25);
-            font-size: 15px; width: 340px; max-height: 90vh; overflow-y: auto;
-        }
+        .panel { position: absolute; top: 16px; right: 20px; z-index: 1000; background: white; padding: 14px 18px; border-radius: 8px; box-shadow: 0 3px 12px rgba(0,0,0,0.25); font-size: 15px; width: 340px; max-height: 90vh; overflow-y: auto; }
         .panel h3 { margin: 0 0 10px 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-        
         .group { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
-        .group-header {
-            background: #f5f5f5; padding: 8px 12px; cursor: pointer;
-            font-weight: bold; font-size: 14px; user-select: none;
-            display: flex; justify-content: space-between; align-items: center;
-        }
+        .group-header { background: #f5f5f5; padding: 8px 12px; cursor: pointer; font-weight: bold; font-size: 14px; user-select: none; display: flex; justify-content: space-between; align-items: center; }
         .group-header:hover { background: #ececec; }
         .group-header .arrow { font-size: 11px; color: #666; transition: transform 0.15s; }
         .group.open .group-header .arrow { transform: rotate(90deg); }
         .group-body { display: none; padding: 8px 12px; }
         .group.open .group-body { display: block; }
-
         .param-row { display: block; margin-bottom: 5px; cursor: pointer; user-select: none; }
         .param-row.disabled { opacity: 0.35; cursor: not-allowed; }
         .param-row input { margin-right: 6px; }
-
-        .btn {
-            display: block; width: 100%; margin-top: 10px; padding: 8px 10px;
-            font-size: 14px; border: 1px solid #ccc; background: #f9f9f9;
-            border-radius: 4px; cursor: pointer; text-align: center;
-        }
+        .btn { display: block; width: 100%; margin-top: 10px; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; background: #f9f9f9; border-radius: 4px; cursor: pointer; text-align: center; }
         .btn:hover { background: #eee; }
         .btn-primary { background: #1976d2; color: white; border-color: #1976d2; font-weight: bold; }
-
-        .sat-select {
-            width: 100%; padding: 6px; margin-bottom: 10px;
-            font-size: 14px; border: 1px solid #ccc; border-radius: 4px;
-        }
+        .sat-select { width: 100%; padding: 6px; margin-bottom: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
         .sat-label { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: block; }
-
         .balloon-table { border-collapse: collapse; font-size: 13px; width: 100%; margin-bottom: 10px; }
         .balloon-table td { border: 1px solid #ddd; padding: 4px 8px; }
         .balloon-table td:first-child { background: #f5f5f5; font-weight: bold; white-space: nowrap; }
         .chart-wrapper { width: 500px; height: 250px; margin-top: 10px; }
-
-        .modal {
-            display: none; position: fixed; z-index: 2000; left: 0; top: 0;
-            width: 100%; height: 100%; background-color: rgba(0,0,0,0.6);
-            align-items: center; justify-content: center;
-        }
-        .modal-content {
-            background-color: white; padding: 20px; border-radius: 8px;
-            width: 90%; max-width: 1000px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            position: relative;
-        }
-        .close-modal {
-            position: absolute; top: 10px; right: 15px; font-size: 24px;
-            font-weight: bold; cursor: pointer; color: #333;
-        }
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); align-items: center; justify-content: center; }
+        .modal-content { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 1000px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); position: relative; }
+        .close-modal { position: absolute; top: 10px; right: 15px; font-size: 24px; font-weight: bold; cursor: pointer; color: #333; }
         .close-modal:hover { color: red; }
         .modal-charts { display: flex; gap: 20px; margin-top: 20px; }
         .modal-chart-box { flex: 1; height: 350px; }
-
-        /* ФИКС ЧЕРНОГО ФОНА У КАРТИНОК */
-        .leaflet-image-layer {
-            mix-blend-mode: screen;
-        }
+        
+        /* Убираем черный фон у PNG */
+        .leaflet-image-layer { mix-blend-mode: screen; }
     </style>
 </head>
 <body>
@@ -83,32 +47,22 @@
     <div class="panel">
         <h3>Параметры (Химия)</h3>
         <div id="groupsContainer"></div>
-        
         <button class="btn btn-primary" id="btnClimate" style="margin-top: 15px;">Графики климата</button>
-        
         <h3 style="margin-top: 15px; border-bottom: none;">Спутниковые слои</h3>
-        
         <label class="sat-label" style="color: #2e7d32;">NDVI водосбора</label>
-        <select id="ndviSelect" class="sat-select">
-            <option value="none">-- Скрыть --</option>
-        </select>
-
+        <select id="ndviSelect" class="sat-select"><option value="none">-- Скрыть --</option></select>
         <label class="sat-label" style="color: #0277bd;">Осадки водосбора</label>
-        <select id="precipSelect" class="sat-select">
-            <option value="none">-- Скрыть --</option>
-        </select>
-
+        <select id="precipSelect" class="sat-select"><option value="none">-- Скрыть --</option></select>
         <label style="display: block; margin-top: 10px; font-size: 14px; cursor: pointer;">
             <input type="checkbox" id="chkBasinBorder"> Показать контур водосбора
         </label>
-
-        <button class="btn" id="btnClear">Сбросить выбранную химию</button>
+        <button class="btn" id="btnClear">Сбросить химию</button>
     </div>
 
     <div id="climateModal" class="modal">
         <div class="modal-content">
             <span class="close-modal" id="closeModal">&times;</span>
-            <h2>Климатические данные водосбора реки Луга</h2>
+            <h2>Климатические данные</h2>
             <div class="modal-charts">
                 <div class="modal-chart-box"><canvas id="bigNdviChart"></canvas></div>
                 <div class="modal-chart-box"><canvas id="bigPrecipChart"></canvas></div>
@@ -117,27 +71,18 @@
     </div>
 
     <script>
-        // 1. Инициализация карты
         var map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 2. КОНТУР (читаем из файла)
         var watershedBorder = null;
-        fetch('luga_watershed.geojson')
-            .then(res => res.json())
-            .then(data => {
-                watershedBorder = L.geoJSON(data, {
-                    style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 }
-                });
-                if (document.getElementById('chkBasinBorder').checked) map.addLayer(watershedBorder);
-            })
-            .catch(err => console.error('Ошибка контура:', err));
-
+        fetch('luga_watershed.geojson').then(res => res.json()).then(data => {
+            watershedBorder = L.geoJSON(data, { style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 } });
+            if (document.getElementById('chkBasinBorder').checked) map.addLayer(watershedBorder);
+        });
         document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
             if (watershedBorder) { if (e.target.checked) map.addLayer(watershedBorder); else map.removeLayer(watershedBorder); }
         });
 
-        // 3. СПУТНИКОВЫЕ СЛОИ
         var imageBounds = [[58.425, 27.670], [59.709, 31.137]]; 
         var ndviLayer = null, precipLayer = null;
 
@@ -145,20 +90,16 @@
             if (type === 'ndvi' && ndviLayer) { map.removeLayer(ndviLayer); ndviLayer = null; }
             if (type === 'precip' && precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
             if (value === 'none') return;
-
             var fileName = 'luga_' + type + '_' + value + '-converted.png';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-            
             var layer = L.imageOverlay(folder + fileName, imageBounds, { opacity: 0.9, interactive: false });
             map.addLayer(layer);
             if (type === 'ndvi') ndviLayer = layer;
             if (type === 'precip') precipLayer = layer;
         }
-
         document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
         document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
 
-        // 4. СПИСКИ
         function populateSelects() {
             var selectNdvi = document.getElementById('ndviSelect');
             var selectPrecip = document.getElementById('precipSelect');
@@ -175,7 +116,6 @@
         }
         populateSelects();
 
-        // 5. ХИМИЯ
         var GROUPS = {
             'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
             'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
@@ -197,11 +137,10 @@
                     var p = feat.properties;
                     var sid = p.station_id || 'unknown';
                     
-                    // Безопасное определение координат
+                    // Берем как есть (в файлах теперь [lon, lat])
                     var lon = feat.geometry.coordinates[0];
                     var lat = feat.geometry.coordinates[1];
-                    if (Math.abs(lon) > 90) { var temp = lon; lon = lat; lat = temp; }
-                    var coords = [lat, lon];
+                    var coords = [lat, lon]; 
 
                     if (!stations[sid]) stations[sid] = { station_id: sid, name: p.name || sid, river: p.river || '', coords: coords, measurements: [], hasDischarge: false };
                     
@@ -218,7 +157,6 @@
                         }
                     }
                 });
-                console.log('Загружен файл:', cfg.url, 'Точек:', Object.keys(stations).length);
             }).catch(err => console.error('Ошибка загрузки ' + cfg.url, err));
         }
 
@@ -283,17 +221,13 @@
 
         function refreshBalloons() {
             Object.keys(markers).forEach(sid => markers[sid].setPopupContent(buildBalloon(stations[sid])));
-            if (document.querySelector('.leaflet-popup-content canvas')) {
-                var canvases = document.querySelectorAll('.leaflet-popup-content canvas');
-                if (canvases.length) renderChart(canvases[canvases.length - 1].id);
-            }
         }
 
         function buildBalloon(st) {
             var html = '<div><h3>' + (st.river || '') + ' — ' + (st.name || st.station_id) + '</h3>';
             var selected = Object.keys(activeParams), flowPoints = st.measurements.filter(m => m.param === 'расход воды'), hasFlow = flowPoints.length > 0;
             var filtered = st.measurements.filter(m => activeParams[m.param] && m.param !== 'расход воды');
-            if (selected.length === 0 && !hasFlow) return html + '<div style="color:#999">Выберите параметр в панели</div></div>';
+            if (selected.length === 0 && !hasFlow) return html + '<div style="color:#999">Выберите параметр</div></div>';
 
             var byParam = {};
             filtered.forEach(m => {
@@ -344,13 +278,13 @@
             });
 
             if (flowPoints.length > 0) {
-                datasets.push({ label: 'расход воды, м³/с', data: labels.map(d => { var f = flowPoints.find(m => m.date === d); return f ? parseFloat(f.value) : null; }), borderColor: '#43a047', borderDash: [4, 3], tension: 0.2, pointRadius: 3, spanGaps: true, yAxisID: 'y1' });
+                datasets.push({ label: 'расход воды', data: labels.map(d => { var f = flowPoints.find(m => m.date === d); return f ? parseFloat(f.value) : null; }), borderColor: '#43a047', borderDash: [4, 3], tension: 0.2, pointRadius: 3, spanGaps: true, yAxisID: 'y1' });
             }
 
             var showFlow = datasets.some(d => d.yAxisID === 'y1');
             activeCharts[canvasId] = new Chart(canvas.getContext('2d'), {
                 type: 'line', data: { labels, datasets },
-                options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { display: true, labels: { font: { size: 11 } } } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { position: 'left' }, y1: { position: 'right', display: showFlow, grid: { drawOnChartArea: false } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { position: 'left' }, y1: { position: 'right', display: showFlow, grid: { drawOnChartArea: false } } } }
             });
         }
 
@@ -368,33 +302,17 @@
 
                 markers[sid] = marker;
             });
-            console.log('Отрисовано маркеров:', Object.keys(markers).length);
         }
 
         Promise.all(FILES.map(loadFile)).then(() => { 
-            buildPanel(); 
-            buildPoints(); 
-            recomputeAvailable(); 
-        }).catch(err => console.error('Критическая ошибка:', err));
+            buildPanel(); buildPoints(); recomputeAvailable(); 
+        }).catch(err => console.error(err));
 
         document.getElementById('btnClear').addEventListener('click', () => {
             activeParams = {}; availableParams = null;
             document.querySelectorAll('#groupsContainer input[type=checkbox]').forEach(cb => { cb.checked = false; cb.disabled = false; cb.closest('.param-row').classList.remove('active', 'disabled'); });
             applyFilter(); refreshBalloons();
         });
-
-        var climateData = [];
-        var bigNdviChart = null, bigPrecipChart = null;
-        fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
-        document.getElementById('btnClimate').addEventListener('click', function() {
-            document.getElementById('climateModal').style.display = 'flex';
-            if (!bigNdviChart && climateData.length > 0) {
-                var labels = climateData.map(d => d.date);
-                bigNdviChart = new Chart(document.getElementById('bigNdviChart'), { type: 'line', data: { labels: labels, datasets: [{ label: 'NDVI', data: climateData.map(d => d.ndvi), borderColor: '#4caf50', fill: true, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false } });
-                bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), { type: 'bar', data: { labels: labels, datasets: [{ label: 'Осадки, мм', data: climateData.map(d => d.precip_mm), backgroundColor: '#29b6f6' }] }, options: { responsive: true, maintainAspectRatio: false } });
-            }
-        });
-        document.getElementById('closeModal').addEventListener('click', function() { document.getElementById('climateModal').style.display = 'none'; });
     </script>
 </body>
 </html>
