@@ -3,7 +3,6 @@
 <head>
     <meta charset="utf-8" />
     <title>Гидрохимия на карте</title>
-    <!-- Подключаем Leaflet и Chart.js -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -49,16 +48,10 @@
         }
         .sat-label { font-weight: bold; font-size: 14px; margin-bottom: 5px; display: block; }
 
-        /* Стили для балунов Leaflet */
-        .leaflet-popup-content { margin: 12px; font-size: 14px; font-family: Arial, sans-serif; }
-        .leaflet-popup-content h3 { margin: 0 0 5px 0; font-size: 16px; }
         .balloon-table { border-collapse: collapse; font-size: 13px; width: 100%; margin-bottom: 10px; }
         .balloon-table td { border: 1px solid #ddd; padding: 4px 8px; }
         .balloon-table td:first-child { background: #f5f5f5; font-weight: bold; white-space: nowrap; }
         .chart-wrapper { width: 500px; height: 250px; margin-top: 10px; }
-        .legend { font-size: 12px; color: #666; margin-bottom: 6px; }
-        .legend span { display: inline-block; margin-right: 12px; }
-        .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 
         .modal {
             display: none; position: fixed; z-index: 2000; left: 0; top: 0;
@@ -119,28 +112,37 @@
     </div>
 
     <script>
-        // --- 1. ИНИЦИАЛИЗАЦИЯ КАРТЫ (БЕЗ ПЛАШКИ ФЛАГА) ---
-        // Мы используем слой OpenStreetMap, но отключаем атрибуцию (плашку с флагом и копирайтом)
+        // 1. Инициализация карты
         var map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
-
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // --- 2. КОНТУР ВОДОСБОРА ---
-        var basinCoords = [
-            [59.6592,28.0914],[59.6575,28.1031],[59.6520,28.1047],[59.6438,28.1118],[59.6411,28.1131],[59.6354,28.1089],[59.6325,28.1077],[59.6229,28.1160],[59.6175,28.1175],[59.6157,28.1240],[59.6103,28.1256],[59.6063,28.1285],[59.6020,28.1297],[59.5979,28.1327],[59.5909,28.1339],[59.5813,28.1256],[59.5745,28.1243],[59.5688,28.1285],[59.5596,28.1297],[59.5577,28.1228],[59.5540,28.1178],[59.5478,28.1160],[59.5438,28.1131],[59.5374,28.1125],[59.5350,28.1128],[59.5315,28.1163],[59.5267,28.1170],[59.5211,28.1225]
-        ]; // Сократил для примера, вставь свой полный массив из предыдущего кода
-
-        var watershedBorder = L.polygon(basinCoords, {
-            color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0
-        });
+        // 2. ЧТЕНИЕ КОНТУРА ИЗ ФАЙЛА
+        var watershedBorder = null;
+        fetch('luga_watershed.geojson')
+            .then(res => res.json())
+            .then(data => {
+                // Leaflet отлично понимает GeoJSON!
+                watershedBorder = L.geoJSON(data, {
+                    style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 }
+                });
+                
+                // Если галочка уже стоит, показываем
+                if (document.getElementById('chkBasinBorder').checked) {
+                    map.addLayer(watershedBorder);
+                }
+            })
+            .catch(err => console.error('Ошибка загрузки контура:', err));
 
         document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
-            if (e.target.checked) map.addLayer(watershedBorder);
-            else map.removeLayer(watershedBorder);
+            if (watershedBorder) {
+                if (e.target.checked) map.addLayer(watershedBorder);
+                else map.removeLayer(watershedBorder);
+            } else {
+                alert("Контур еще загружается...");
+            }
         });
 
-        // --- 3. СПУТНИКОВЫЕ СЛОИ (ПРОЗРАЧНЫЕ PNG) ---
-        // Координаты углов прямоугольника, в который вписан водосбор
+        // 3. СПУТНИКОВЫЕ СЛОИ
         var imageBounds = [[58.425, 27.670], [59.709, 31.137]]; 
         var ndviLayer = null, precipLayer = null;
 
@@ -149,10 +151,10 @@
             if (type === 'precip' && precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
             if (value === 'none') return;
 
-            var fileName = 'luga_' + type + '_' + value + '.png';
+            // ВАЖНО: Добавлен суффикс '-converted', как у тебя в репозитории
+            var fileName = 'luga_' + type + '_' + value + '-converted.png';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
             
-            // Накладываем картинку как ImageOverlay
             var layer = L.imageOverlay(folder + fileName, imageBounds, {
                 opacity: 0.9,
                 interactive: false
@@ -163,7 +165,10 @@
             if (type === 'precip') precipLayer = layer;
         }
 
-        // --- 4. СПИСКИ ---
+        document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
+        document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
+
+        // 4. СПИСКИ
         function populateSelects() {
             var selectNdvi = document.getElementById('ndviSelect');
             var selectPrecip = document.getElementById('precipSelect');
@@ -181,17 +186,13 @@
         }
         populateSelects();
 
-        document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
-        document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
-
-        // --- 5. ХИМИЯ (ПЕРЕПИСАНО ПОД LEAFLET) ---
+        // 5. ХИМИЯ
         var GROUPS = {
             'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
             'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
             'Физико-химические': ['pH', 'рН', 'Жₒ', 'PO₄³⁻', 'ХПК', 'БПК5', 'ПМО']
         };
-        var COLOR_WITH_FLOW = '#1976d2';
-        var COLOR_ONLY_OWN  = '#f57c00';
+        var COLOR_WITH_FLOW = '#1976d2', COLOR_ONLY_OWN = '#f57c00';
         var stations = {}, markers = {}, allParams = {}, activeParams = {};
         var availableParams = null;
         var FILES = [
@@ -207,8 +208,11 @@
                     var p = feat.properties;
                     var sid = p.station_id || 'unknown';
                     
-                    // В Leaflet координаты идут [lat, lon], а в GeoJSON [lon, lat]. Меняем местами.
-                    var coords = [feat.geometry.coordinates[1], feat.geometry.coordinates[0]];
+                    // В Leaflet [lat, lon]. Если в GeoJSON было [lon, lat], то берем [1] и [0]
+                    var lon = feat.geometry.coordinates[0];
+                    var lat = feat.geometry.coordinates[1];
+                    if (Math.abs(lon) > 90) { var temp = lon; lon = lat; lat = temp; }
+                    var coords = [lat, lon];
 
                     if (!stations[sid]) stations[sid] = { station_id: sid, name: p.name || sid, river: p.river || '', coords: coords, measurements: [], hasDischarge: false };
                     
@@ -280,11 +284,7 @@
             Object.keys(markers).forEach(sid => {
                 var marker = markers[sid], st = stations[sid];
                 var baseColor = st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN;
-                
-                if (!hasFilter) { 
-                    marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 }); 
-                    return; 
-                }
+                if (!hasFilter) { marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 }); return; }
                 var match = st.measurements.some(m => activeParams[m.param]);
                 if (match) marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 });
                 else marker.setStyle({ fillColor: '#cccccc', opacity: 0.4, fillOpacity: 0.4 });
@@ -293,7 +293,6 @@
 
         function refreshBalloons() {
             Object.keys(markers).forEach(sid => markers[sid].setPopupContent(buildBalloon(stations[sid])));
-            // Перерисовка графиков в открытом балуне
             if (document.querySelector('.leaflet-popup-content canvas')) {
                 var canvases = document.querySelectorAll('.leaflet-popup-content canvas');
                 if (canvases.length) renderChart(canvases[canvases.length - 1].id);
@@ -302,12 +301,9 @@
 
         function buildBalloon(st) {
             var html = '<div><h3>' + (st.river || '') + ' — ' + (st.name || st.station_id) + '</h3>';
-            var selected = Object.keys(activeParams);
-            var flowPoints = st.measurements.filter(m => m.param === 'расход воды');
-            var hasFlow = flowPoints.length > 0;
+            var selected = Object.keys(activeParams), flowPoints = st.measurements.filter(m => m.param === 'расход воды'), hasFlow = flowPoints.length > 0;
             var filtered = st.measurements.filter(m => activeParams[m.param] && m.param !== 'расход воды');
-
-            if (selected.length === 0 && !hasFlow) return html + '<div style="color:#999">Выберите параметр в панели, чтобы увидеть данные</div></div>';
+            if (selected.length === 0 && !hasFlow) return html + '<div style="color:#999">Выберите параметр в панели</div></div>';
 
             var byParam = {};
             filtered.forEach(m => {
@@ -378,13 +374,7 @@
                 }).addTo(map);
 
                 marker.bindPopup(buildBalloon(st), { maxWidth: 550 });
-
-                marker.on('popupopen', function() {
-                    setTimeout(() => {
-                        var canvases = document.querySelectorAll('.leaflet-popup-content canvas');
-                        if (canvases.length) renderChart(canvases[canvases.length - 1].id);
-                    }, 100);
-                });
+                marker.on('popupopen', function() { setTimeout(() => { var canvases = document.querySelectorAll('.leaflet-popup-content canvas'); if (canvases.length) renderChart(canvases[canvases.length - 1].id); }, 100); });
 
                 markers[sid] = marker;
             });
@@ -398,7 +388,6 @@
             applyFilter(); refreshBalloons();
         });
 
-        // --- КЛИМАТ ---
         var climateData = [];
         var bigNdviChart = null, bigPrecipChart = null;
         fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
@@ -406,14 +395,8 @@
             document.getElementById('climateModal').style.display = 'flex';
             if (!bigNdviChart && climateData.length > 0) {
                 var labels = climateData.map(d => d.date);
-                bigNdviChart = new Chart(document.getElementById('bigNdviChart'), {
-                    type: 'line', data: { labels: labels, datasets: [{ label: 'NDVI', data: climateData.map(d => d.ndvi), borderColor: '#4caf50', fill: true, pointRadius: 0 }] },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-                bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), {
-                    type: 'bar', data: { labels: labels, datasets: [{ label: 'Осадки, мм', data: climateData.map(d => d.precip_mm), backgroundColor: '#29b6f6' }] },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
+                bigNdviChart = new Chart(document.getElementById('bigNdviChart'), { type: 'line', data: { labels: labels, datasets: [{ label: 'NDVI', data: climateData.map(d => d.ndvi), borderColor: '#4caf50', fill: true, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false } });
+                bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), { type: 'bar', data: { labels: labels, datasets: [{ label: 'Осадки, мм', data: climateData.map(d => d.precip_mm), backgroundColor: '#29b6f6' }] }, options: { responsive: true, maintainAspectRatio: false } });
             }
         });
         document.getElementById('closeModal').addEventListener('click', function() { document.getElementById('climateModal').style.display = 'none'; });
