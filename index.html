@@ -91,7 +91,46 @@
             }
         });
 
+        // ============================================================
+        // СПУТНИКОВЫЕ СЛОИ (NDVI / ОСАДКИ)
+        // ============================================================
         var ndviLayer = null, precipLayer = null;
+
+        // Цветовая шкала для NDVI (значения примерно -1..1)
+        function colorNDVI(v) {
+            if (v === null || v === undefined || isNaN(v)) return null;
+            if (v < -0.1) return 'rgba(0,0,0,0)';            // вода/облака — прозрачно
+            if (v < 0.1)  return 'rgba(160,120,80,0.8)';     // песок/голая почва
+            if (v < 0.2)  return 'rgba(200,170,110,0.8)';
+            if (v < 0.3)  return 'rgba(200,200,120,0.8)';
+            if (v < 0.4)  return 'rgba(160,200,90,0.8)';
+            if (v < 0.5)  return 'rgba(100,180,60,0.8)';
+            if (v < 0.6)  return 'rgba(50,150,40,0.85)';
+            if (v < 0.7)  return 'rgba(20,120,30,0.85)';
+            return 'rgba(0,90,20,0.9)';                      // густая растительность
+        }
+
+        // Цветовая шкала для осадков (мм); подстройте под реальный диапазон файлов
+        function colorPrecip(v) {
+            if (v === null || v === undefined || isNaN(v)) return null;
+            if (v <= 0)   return 'rgba(0,0,0,0)';
+            if (v < 10)   return 'rgba(200,230,255,0.75)';
+            if (v < 25)   return 'rgba(140,200,255,0.8)';
+            if (v < 50)   return 'rgba(80,160,240,0.85)';
+            if (v < 80)   return 'rgba(40,110,220,0.85)';
+            if (v < 120)  return 'rgba(20,70,180,0.9)';
+            return 'rgba(10,30,120,0.95)';
+        }
+
+        function getGeorasterNodata(georaster) {
+            if (georaster.noDataValue !== undefined && georaster.noDataValue !== null) {
+                return georaster.noDataValue;
+            }
+            if (georaster.mins && georaster.maxs && georaster.mins[0] === georaster.maxs[0]) {
+                return georaster.mins[0];
+            }
+            return -9999;
+        }
 
         function updateSatLayer(type, value) {
             if (type === 'ndvi' && ndviLayer) { map.removeLayer(ndviLayer); ndviLayer = null; }
@@ -100,7 +139,7 @@
 
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-            
+
             fetch(folder + fileName)
                 .then(response => {
                     if (!response.ok) throw new Error("Файл не найден: " + response.status);
@@ -108,25 +147,55 @@
                 })
                 .then(arrayBuffer => parseGeoraster(arrayBuffer))
                 .then(georaster => {
-                    
+                    // Диагностика — смотрим в консоли, что реально в файле
+                    console.log('[' + type + '] georaster:', {
+                        width: georaster.width,
+                        height: georaster.height,
+                        numberOfRasters: georaster.numberOfRasters,
+                        projection: georaster.projection,
+                        xmin: georaster.xmin, xmax: georaster.xmax,
+                        ymin: georaster.ymin, ymax: georaster.ymax,
+                        noDataValue: georaster.noDataValue,
+                        mins: georaster.mins, maxs: georaster.maxs
+                    });
+
+                    var isMultiBand = georaster.numberOfRasters > 1;
+                    var nodata = getGeorasterNodata(georaster);
+                    var colorFn = (type === 'ndvi') ? colorNDVI : colorPrecip;
+
                     var layer = new GeoRasterLayer({
                         georaster: georaster,
                         opacity: 0.8,
                         resolution: 256,
-                        mask: watershedMask,
-                        mask_strategy: 'inside',
-                        noDataValue: 0,
-                        // Если в файле 3 канала (RGB), рисуем как есть, без перекраски
+                        // Маску пока отключаем, чтобы исключить её из подозреваемых.
+                        // Когда убедитесь, что слой рисуется — раскомментируйте.
+                        // mask: watershedMask,
+                        // mask_strategy: 'inside',
                         pixelValuesToColorFn: function(values) {
-                            if (georaster.numberOfRasters === 3) {
-                                if (values[0] === 0 && values[1] === 0 && values[2] === 0) return null;
-                                return 'rgb(' + values[0] + ',' + values[1] + ',' + values[2] + ')';
+                            // Многоканальный (RGB) GeoTIFF
+                            if (isMultiBand && values.length >= 3) {
+                                var r = values[0], g = values[1], b = values[2];
+                                if (r === 0 && g === 0 && b === 0) return null;
+                                if (r === nodata || g === nodata || b === nodata) return null;
+                                return 'rgb(' + r + ',' + g + ',' + b + ')';
                             }
-                            return null; 
+                            // Одноканальный (NDVI / осадки)
+                            var v = values[0];
+                            if (v === null || v === undefined) return null;
+                            if (v === nodata) return null;
+                            if (!isFinite(v)) return null;
+                            return colorFn(v);
                         }
                     });
-                    
+
                     map.addLayer(layer);
+
+                    // Подгоняем карту под слой
+                    try {
+                        var b = layer.getBounds();
+                        if (b && b.isValid()) map.fitBounds(b, { maxZoom: 9 });
+                    } catch (e) { /* ignore */ }
+
                     if (type === 'ndvi') ndviLayer = layer;
                     if (type === 'precip') precipLayer = layer;
                 })
@@ -145,6 +214,9 @@
             if (precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
         });
 
+        // ============================================================
+        // ЗАПОЛНЕНИЕ СПИСКОВ ДОСТУПНЫХ ФАЙЛОВ
+        // ============================================================
         function checkAvailability(type, year, season) {
             var fileName = 'luga_' + type + '_' + season + '_' + year + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
@@ -190,6 +262,9 @@
         
         populateSelects();
 
+        // ============================================================
+        // ХИМИЯ
+        // ============================================================
         var GROUPS = {
             'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
             'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
@@ -408,6 +483,9 @@
             applyFilter(); refreshBalloons();
         });
 
+        // ============================================================
+        // КЛИМАТ
+        // ============================================================
         var climateData = [];
         var bigNdviChart = null, bigPrecipChart = null;
         
