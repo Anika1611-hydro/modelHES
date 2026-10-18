@@ -95,7 +95,6 @@
         // СПУТНИКОВЫЕ СЛОИ (NDVI / ОСАДКИ)
         // ============================================================
         var satLayers = { ndvi: null, precip: null };
-        // Токены загрузки: защищают от гонки, когда пользователь быстро переключает сезоны
         var satLoadTokens = { ndvi: 0, precip: 0 };
 
         function colorNDVI(v) {
@@ -132,40 +131,32 @@
             return -9999;
         }
 
-        // Надёжно снимаем слой с карты, что бы ни случилось
-        function removeSatLayer(type) {
-            var layer = satLayers[type];
-            if (layer) {
-                try {
-                    if (map.hasLayer(layer)) map.removeLayer(layer);
-                    if (typeof layer.remove === 'function') layer.remove();
-                } catch (e) {
-                    console.warn('removeSatLayer:', e);
-                }
-                satLayers[type] = null;
-            }
-            // Дополнительно: чистим возможные «сиротские» растровые слои этого типа
+        // Жесткая зачистка всех растровых слоев
+        function removeSatLayer() {
             map.eachLayer(function(l) {
-                if (l instanceof GeoRasterLayer && l._satType === type) {
-                    map.removeLayer(l);
+                if (l instanceof GeoRasterLayer) {
+                    try {
+                        map.removeLayer(l);
+                    } catch(e) {}
                 }
             });
+            satLayers.ndvi = null;
+            satLayers.precip = null;
         }
 
         function updateSatLayer(type, value) {
-            // 1. Сразу убираем предыдущий слой этого типа
-            removeSatLayer(type);
+            // 1. Убираем ВСЕ предыдущие растровые слои
+            removeSatLayer();
 
             // 2. Если выбрано «скрыть» — на этом всё
             if (value === 'none') return;
 
-            // 3. Токен: если пользователь переключит сезон до завершения загрузки,
-            //    старая загрузка не добавит свой слой
+            // 3. Токен для защиты от быстрых переключений
             var token = ++satLoadTokens[type];
 
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-            var url = folder + fileName + '?v=' + Date.now(); // антикеш на всякий случай
+            var url = folder + fileName + '?v=' + Date.now(); 
 
             console.log('[' + type + '] загрузка:', folder + fileName);
 
@@ -176,22 +167,10 @@
                 })
                 .then(arrayBuffer => parseGeoraster(arrayBuffer))
                 .then(georaster => {
-                    // Пока грузились — пользователь мог выбрать другой сезон
                     if (token !== satLoadTokens[type]) {
                         console.log('[' + type + '] устаревшая загрузка, пропускаем:', fileName);
                         return;
                     }
-
-                    console.log('[' + type + '] georaster:', {
-                        file: fileName,
-                        width: georaster.width,
-                        height: georaster.height,
-                        numberOfRasters: georaster.numberOfRasters,
-                        projection: georaster.projection,
-                        noDataValue: georaster.noDataValue,
-                        mins: georaster.mins,
-                        maxs: georaster.maxs
-                    });
 
                     var isMultiBand = georaster.numberOfRasters > 1;
                     var nodata = getGeorasterNodata(georaster);
@@ -216,10 +195,6 @@
                         }
                     });
 
-                    // Помечаем слой, чтобы removeSatLayer мог найти его даже при рассинхроне
-                    layer._satType = type;
-                    layer._satFile = fileName;
-
                     map.addLayer(layer);
                     satLayers[type] = layer;
 
@@ -239,10 +214,9 @@
         document.getElementById('btnResetSat').addEventListener('click', function() {
             document.getElementById('ndviSelect').value = 'none';
             document.getElementById('precipSelect').value = 'none';
-            satLoadTokens.ndvi++;      // инвалидируем возможные незавершённые загрузки
+            satLoadTokens.ndvi++;      
             satLoadTokens.precip++;
-            removeSatLayer('ndvi');
-            removeSatLayer('precip');
+            removeSatLayer();
         });
 
         // ============================================================
