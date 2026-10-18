@@ -74,7 +74,7 @@
         var map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // Контур
+        // --- 1. КОНТУР ---
         var watershedBorder = null;
         fetch('luga_watershed.geojson').then(res => res.json()).then(data => {
             watershedBorder = L.geoJSON(data, { style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 } });
@@ -84,7 +84,7 @@
             if (watershedBorder) { if (e.target.checked) map.addLayer(watershedBorder); else map.removeLayer(watershedBorder); }
         });
 
-        // Картинки
+        // --- 2. СПУТНИКОВЫЕ СЛОИ ---
         var imageBounds = [[58.425, 27.670], [59.709, 31.137]]; 
         var ndviLayer = null, precipLayer = null;
 
@@ -102,7 +102,7 @@
         document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
         document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
 
-        // Списки
+        // --- 3. СПИСКИ ---
         function populateSelects() {
             var selectNdvi = document.getElementById('ndviSelect');
             var selectPrecip = document.getElementById('precipSelect');
@@ -119,7 +119,7 @@
         }
         populateSelects();
 
-        // Химия
+        // --- 4. ХИМИЯ ---
         var GROUPS = {
             'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
             'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
@@ -134,7 +134,6 @@
         ];
         var PALETTE = ['#1976d2', '#e65100', '#6a1b9a', '#00838f', '#c62828', '#2e7d32', '#f9a825', '#4e342e', '#37474f', '#ad1457'];
         
-        // МАГИЯ ДЛЯ ГРАФИКОВ
         var chartCounter = 0, activeCharts = {}, openPopupStationId = null;
 
         function loadFile(cfg) {
@@ -143,6 +142,7 @@
                     var p = feat.properties;
                     var sid = p.station_id || 'unknown';
                     
+                    // Читаем правильные координаты
                     var lon = feat.geometry.coordinates[0];
                     var lat = feat.geometry.coordinates[1];
                     var coords = [lat, lon]; 
@@ -187,7 +187,7 @@
                 cb.addEventListener('change', () => {
                     var param = cb.getAttribute('data-param');
                     if (cb.checked) activeParams[param] = true; else delete activeParams[param];
-                    recomputeAvailable(); applyFilter(); refreshBalloons(); // Обновляем балуны
+                    recomputeAvailable(); applyFilter(); refreshBalloons();
                 });
             });
         }
@@ -212,19 +212,15 @@
             });
         }
 
+        // ФИКС: Точки больше не исчезают и не сереют, если параметра нет
         function applyFilter() {
-            var hasFilter = Object.keys(activeParams).length > 0;
             Object.keys(markers).forEach(sid => {
                 var marker = markers[sid], st = stations[sid];
                 var baseColor = st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN;
-                if (!hasFilter) { marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 }); return; }
-                var match = st.measurements.some(m => activeParams[m.param]);
-                if (match) marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 });
-                else marker.setStyle({ fillColor: '#cccccc', opacity: 0.4, fillOpacity: 0.4 });
+                marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 });
             });
         }
 
-        // ФИКС БАЛУНОВ: перерисовываем открытый попап
         function refreshBalloons() {
             Object.keys(markers).forEach(sid => {
                 markers[sid].setPopupContent(buildBalloon(stations[sid]));
@@ -278,7 +274,6 @@
             var payload = window.__pendingCharts[canvasId]; if (!payload) return;
             var canvas = document.getElementById(canvasId); if (!canvas) return;
             
-            // Уничтожаем старый график, если он был
             if (activeCharts[canvasId]) {
                 activeCharts[canvasId].destroy();
                 delete activeCharts[canvasId];
@@ -320,7 +315,6 @@
 
                 marker.bindPopup(buildBalloon(st), { maxWidth: 550 });
                 
-                // Запоминаем, какой попап открыт
                 marker.on('popupopen', function() {
                     openPopupStationId = sid;
                     setTimeout(() => { 
@@ -344,6 +338,52 @@
             activeParams = {}; availableParams = null;
             document.querySelectorAll('#groupsContainer input[type=checkbox]').forEach(cb => { cb.checked = false; cb.disabled = false; cb.closest('.param-row').classList.remove('active', 'disabled'); });
             applyFilter(); refreshBalloons();
+        });
+
+        // --- 5. КЛИМАТ (ИСПРАВЛЕНО) ---
+        var climateData = [];
+        var bigNdviChart = null, bigPrecipChart = null;
+        
+        fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
+
+        document.getElementById('btnClimate').addEventListener('click', function() {
+            document.getElementById('climateModal').style.display = 'flex';
+            
+            if (!bigNdviChart && climateData.length > 0) {
+                var labels = climateData.map(d => d.date);
+                
+                bigNdviChart = new Chart(document.getElementById('bigNdviChart'), {
+                    type: 'line', 
+                    data: { 
+                        labels: labels, 
+                        datasets: [{ 
+                            label: 'NDVI', 
+                            data: climateData.map(d => d.ndvi), 
+                            borderColor: '#4caf50', 
+                            fill: true, 
+                            pointRadius: 0 
+                        }] 
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+                
+                bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), {
+                    type: 'bar', 
+                    data: { 
+                        labels: labels, 
+                        datasets: [{ 
+                            label: 'Осадки, мм', 
+                            data: climateData.map(d => d.precip_mm), 
+                            backgroundColor: '#29b6f6' 
+                        }] 
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }
+        });
+        
+        document.getElementById('closeModal').addEventListener('click', function() { 
+            document.getElementById('climateModal').style.display = 'none'; 
         });
     </script>
 </body>
