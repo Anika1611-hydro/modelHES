@@ -94,23 +94,23 @@
         // ============================================================
         // СПУТНИКОВЫЕ СЛОИ (NDVI / ОСАДКИ)
         // ============================================================
-        var ndviLayer = null, precipLayer = null;
+        var satLayers = { ndvi: null, precip: null };
+        // Токены загрузки: защищают от гонки, когда пользователь быстро переключает сезоны
+        var satLoadTokens = { ndvi: 0, precip: 0 };
 
-        // Цветовая шкала для NDVI (значения примерно -1..1)
         function colorNDVI(v) {
             if (v === null || v === undefined || isNaN(v)) return null;
-            if (v < -0.1) return 'rgba(0,0,0,0)';            // вода/облака — прозрачно
-            if (v < 0.1)  return 'rgba(160,120,80,0.8)';     // песок/голая почва
+            if (v < -0.1) return 'rgba(0,0,0,0)';
+            if (v < 0.1)  return 'rgba(160,120,80,0.8)';
             if (v < 0.2)  return 'rgba(200,170,110,0.8)';
             if (v < 0.3)  return 'rgba(200,200,120,0.8)';
             if (v < 0.4)  return 'rgba(160,200,90,0.8)';
             if (v < 0.5)  return 'rgba(100,180,60,0.8)';
             if (v < 0.6)  return 'rgba(50,150,40,0.85)';
             if (v < 0.7)  return 'rgba(20,120,30,0.85)';
-            return 'rgba(0,90,20,0.9)';                      // густая растительность
+            return 'rgba(0,90,20,0.9)';
         }
 
-        // Цветовая шкала для осадков (мм); подстройте под реальный диапазон файлов
         function colorPrecip(v) {
             if (v === null || v === undefined || isNaN(v)) return null;
             if (v <= 0)   return 'rgba(0,0,0,0)';
@@ -132,31 +132,65 @@
             return -9999;
         }
 
+        // Надёжно снимаем слой с карты, что бы ни случилось
+        function removeSatLayer(type) {
+            var layer = satLayers[type];
+            if (layer) {
+                try {
+                    if (map.hasLayer(layer)) map.removeLayer(layer);
+                    if (typeof layer.remove === 'function') layer.remove();
+                } catch (e) {
+                    console.warn('removeSatLayer:', e);
+                }
+                satLayers[type] = null;
+            }
+            // Дополнительно: чистим возможные «сиротские» растровые слои этого типа
+            map.eachLayer(function(l) {
+                if (l instanceof GeoRasterLayer && l._satType === type) {
+                    map.removeLayer(l);
+                }
+            });
+        }
+
         function updateSatLayer(type, value) {
-            if (type === 'ndvi' && ndviLayer) { map.removeLayer(ndviLayer); ndviLayer = null; }
-            if (type === 'precip' && precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
+            // 1. Сразу убираем предыдущий слой этого типа
+            removeSatLayer(type);
+
+            // 2. Если выбрано «скрыть» — на этом всё
             if (value === 'none') return;
+
+            // 3. Токен: если пользователь переключит сезон до завершения загрузки,
+            //    старая загрузка не добавит свой слой
+            var token = ++satLoadTokens[type];
 
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
+            var url = folder + fileName + '?v=' + Date.now(); // антикеш на всякий случай
 
-            fetch(folder + fileName)
+            console.log('[' + type + '] загрузка:', folder + fileName);
+
+            fetch(url)
                 .then(response => {
                     if (!response.ok) throw new Error("Файл не найден: " + response.status);
                     return response.arrayBuffer();
                 })
                 .then(arrayBuffer => parseGeoraster(arrayBuffer))
                 .then(georaster => {
-                    // Диагностика — смотрим в консоли, что реально в файле
+                    // Пока грузились — пользователь мог выбрать другой сезон
+                    if (token !== satLoadTokens[type]) {
+                        console.log('[' + type + '] устаревшая загрузка, пропускаем:', fileName);
+                        return;
+                    }
+
                     console.log('[' + type + '] georaster:', {
+                        file: fileName,
                         width: georaster.width,
                         height: georaster.height,
                         numberOfRasters: georaster.numberOfRasters,
                         projection: georaster.projection,
-                        xmin: georaster.xmin, xmax: georaster.xmax,
-                        ymin: georaster.ymin, ymax: georaster.ymax,
                         noDataValue: georaster.noDataValue,
-                        mins: georaster.mins, maxs: georaster.maxs
+                        mins: georaster.mins,
+                        maxs: georaster.maxs
                     });
 
                     var isMultiBand = georaster.numberOfRasters > 1;
@@ -167,19 +201,13 @@
                         georaster: georaster,
                         opacity: 0.8,
                         resolution: 256,
-                        // Маску пока отключаем, чтобы исключить её из подозреваемых.
-                        // Когда убедитесь, что слой рисуется — раскомментируйте.
-                        // mask: watershedMask,
-                        // mask_strategy: 'inside',
                         pixelValuesToColorFn: function(values) {
-                            // Многоканальный (RGB) GeoTIFF
                             if (isMultiBand && values.length >= 3) {
                                 var r = values[0], g = values[1], b = values[2];
                                 if (r === 0 && g === 0 && b === 0) return null;
                                 if (r === nodata || g === nodata || b === nodata) return null;
                                 return 'rgb(' + r + ',' + g + ',' + b + ')';
                             }
-                            // Одноканальный (NDVI / осадки)
                             var v = values[0];
                             if (v === null || v === undefined) return null;
                             if (v === nodata) return null;
@@ -188,16 +216,17 @@
                         }
                     });
 
-                    map.addLayer(layer);
+                    // Помечаем слой, чтобы removeSatLayer мог найти его даже при рассинхроне
+                    layer._satType = type;
+                    layer._satFile = fileName;
 
-                    // Подгоняем карту под слой
+                    map.addLayer(layer);
+                    satLayers[type] = layer;
+
                     try {
                         var b = layer.getBounds();
                         if (b && b.isValid()) map.fitBounds(b, { maxZoom: 9 });
                     } catch (e) { /* ignore */ }
-
-                    if (type === 'ndvi') ndviLayer = layer;
-                    if (type === 'precip') precipLayer = layer;
                 })
                 .catch(err => {
                     console.error("Ошибка загрузки TIF:", err);
@@ -210,8 +239,10 @@
         document.getElementById('btnResetSat').addEventListener('click', function() {
             document.getElementById('ndviSelect').value = 'none';
             document.getElementById('precipSelect').value = 'none';
-            if (ndviLayer) { map.removeLayer(ndviLayer); ndviLayer = null; }
-            if (precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
+            satLoadTokens.ndvi++;      // инвалидируем возможные незавершённые загрузки
+            satLoadTokens.precip++;
+            removeSatLayer('ndvi');
+            removeSatLayer('precip');
         });
 
         // ============================================================
