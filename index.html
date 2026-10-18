@@ -118,7 +118,58 @@
                 controls: ['zoomControl', 'fullscreenControl', 'typeSelector']
             });
 
-            // --- 1. ГЕНЕРАЦИЯ СПИСКОВ ---
+            // --- 1. КОНТУР (БЕЗ ПЕРЕВОРОТА) ---
+            var watershedBorder = null;
+            fetch('luga_watershed.geojson')
+                .then(res => res.text())
+                .then(text => {
+                    var data = JSON.parse(text.replace(/^\uFEFF/, ''));
+                    var coords = data.features[0].geometry.coordinates;
+                    if (data.features[0].geometry.type === 'MultiPolygon') coords = coords[0];
+                    
+                    // Координаты в файле УЖЕ [lat, lon], поэтому не переворачиваем
+                    watershedBorder = new ymaps.GeoObject({
+                        geometry: { type: "Polygon", coordinates: [coords] }
+                    }, { fillColor: '00000000', strokeColor: '#ff0000', strokeWidth: 4 }); // Сделал красным для заметности
+                });
+
+            document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
+                if (watershedBorder) {
+                    if (e.target.checked) myMap.geoObjects.add(watershedBorder);
+                    else myMap.geoObjects.remove(watershedBorder);
+                } else {
+                    alert("Подождите, контур грузится...");
+                }
+            });
+
+            // --- 2. КАРТИНКИ ЧЕРЕЗ LAYER (С ПРАВИЛЬНЫМИ BOUNDS) ---
+            var ndviLayer = null, precipLayer = null;
+            // BBox взят из твоего GeoJSON (min/max широт и долгот)
+            var basinBounds = [[58.4250, 27.6702], [59.7089, 31.1377]]; 
+
+            function updateSatLayer(type, value) {
+                if (type === 'ndvi' && ndviLayer) { myMap.layers.remove(ndviLayer); ndviLayer = null; }
+                if (type === 'precip' && precipLayer) { myMap.layers.remove(precipLayer); precipLayer = null; }
+                if (value === 'none') return;
+
+                var fileName = 'luga_' + type + '_' + value + '.png';
+                var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
+                
+                // Создаем слой-картинку
+                var layer = new ymaps.Layer(folder + fileName, {
+                    transparent: true, // ВАЖНО: делает фон прозрачным
+                    projection: ymaps.projection.wgs84Mercator
+                });
+
+                layer.options.set('bounds', basinBounds);
+                layer.options.set('opacity', 0.8);
+
+                myMap.layers.add(layer);
+                if (type === 'ndvi') ndviLayer = layer;
+                if (type === 'precip') precipLayer = layer;
+            }
+
+            // Списки (с 2008 по 2023)
             function populateSelects() {
                 var selectNdvi = document.getElementById('ndviSelect');
                 var selectPrecip = document.getElementById('precipSelect');
@@ -135,65 +186,10 @@
             }
             populateSelects();
 
-            // --- 2. КОНТУР ВОДОСБОРА (теперь координаты уже правильные) ---
-            var watershedBorder = null;
-            
-            fetch('luga_watershed.geojson')
-                .then(res => res.text())
-                .then(text => {
-                    var cleanText = text.replace(/^\uFEFF/, '');
-                    var data = JSON.parse(cleanText);
-                    var coords = data.features[0].geometry.coordinates;
-                    if (data.features[0].geometry.type === 'MultiPolygon') coords = coords[0];
-                    
-                    // Тут мы НЕ переворачиваем координаты, так как они уже [lat, lon]
-                    watershedBorder = new ymaps.GeoObject({
-                        geometry: { type: "Polygon", coordinates: [coords] }
-                    }, { fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash' });
-                    
-                    if(document.getElementById('chkBasinBorder').checked) myMap.geoObjects.add(watershedBorder);
-                    console.log("Контур загружен успешно!");
-                })
-                .catch(err => console.error("Ошибка контура:", err));
-
-            document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
-                if (watershedBorder) {
-                    if (e.target.checked) myMap.geoObjects.add(watershedBorder);
-                    else myMap.geoObjects.remove(watershedBorder);
-                } else {
-                    alert("Контур еще не загрузился. Подождите.");
-                }
-            });
-
-            // --- 3. СПУТНИКОВЫЕ СЛОИ (ФИКС: используем Layer с bounds) ---
-            var ndviLayer = null, precipLayer = null;
-            var basinBounds = [[59.21, 27.67], [59.74, 28.56]]; // BBox твоего водосбора
-
-            function updateSatLayer(type, value) {
-                if (type === 'ndvi' && ndviLayer) { myMap.layers.remove(ndviLayer); ndviLayer = null; }
-                if (type === 'precip' && precipLayer) { myMap.layers.remove(precipLayer); precipLayer = null; }
-                if (value === 'none') return;
-
-                var fileName = 'luga_' + type + '_' + value + '.png';
-                var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-                
-                var layer = new ymaps.Layer(folder + fileName, {
-                    transparent: true, // Магия для прозрачности
-                    projection: ymaps.projection.wgs84Mercator
-                });
-
-                layer.options.set('bounds', basinBounds);
-                layer.options.set('opacity', 0.8);
-
-                myMap.layers.add(layer);
-                if (type === 'ndvi') ndviLayer = layer;
-                if (type === 'precip') precipLayer = layer;
-            }
-
             document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
             document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
 
-            // --- 4. ХИМИЯ И РАСХОДЫ ---
+            // --- 3. ХИМИЯ (БЕЗ ИЗМЕНЕНИЙ, КОПИЯ) ---
             var GROUPS = {
                 'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
                 'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
