@@ -7,7 +7,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="https://unpkg.com/georaster"></script>
-    <script src="https://unpkg.com/georaster-layer-for-leaflet"></script>
 
     <style>
         html, body, #map { width: 100%; height: 100%; padding: 0; margin: 0; font-family: Arial, sans-serif; }
@@ -72,7 +71,7 @@
     </div>
 
     <script>
-        // --- 1. ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ЗАРАНЕЕ ---
+        // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
         var map = null;
         var watershedBorder = null;
         var satRasterLayer = null; 
@@ -84,10 +83,10 @@
         var availableParams = null;
         var openPopupStationId = null;
 
-        // --- 2. ФУНКЦИЯ СОЗДАНИЯ КАРТЫ ---
+        // --- ИНИЦИАЛИЗАЦИЯ КАРТЫ ---
         function initMap() {
             if (map) {
-                map.remove(); // Уничтожаем старую карту
+                map.remove(); 
             }
             map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
@@ -98,16 +97,14 @@
             if (satRasterLayer) {
                 map.addLayer(satRasterLayer);
             }
-            // Восстанавливаем маркеры
             if (Object.keys(markers).length > 0) {
                 Object.values(markers).forEach(m => map.addLayer(m));
             }
         }
 
-        // Запускаем карту
         initMap();
 
-        // --- 3. ЗАГРУЗКА КОНТУРА ---
+        // Загружаем контур
         fetch('luga_watershed.geojson').then(res => res.json()).then(data => {
             watershedBorder = L.geoJSON(data, { style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 } });
             if (document.getElementById('chkBasinBorder').checked) map.addLayer(watershedBorder);
@@ -121,19 +118,13 @@
         });
 
         // ============================================================
-        // СПУТНИКОВЫЕ СЛОИ (ЯДЕРНЫЙ МЕТОД)
+        // СПУТНИКОВЫЕ СЛОИ (ЧЕРЕЗ КАНВАС И IMAGEOVERLAY)
         // ============================================================
         var satLoadTokens = { ndvi: 0, precip: 0 };
 
-        function getGeorasterNodata(georaster) {
-            if (georaster.noDataValue !== undefined && georaster.noDataValue !== null) return georaster.noDataValue;
-            if (georaster.mins && georaster.maxs && georaster.mins[0] === georaster.maxs[0]) return georaster.mins[0];
-            return -9999;
-        }
-
         function updateSatLayer(type, value) {
             satRasterLayer = null;
-            initMap(); // Уничтожаем и создаем карту заново
+            initMap(); // Полностью пересоздаем карту
 
             if (value === 'none') return;
 
@@ -141,6 +132,8 @@
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
             var url = folder + fileName + '?nocache=' + Math.random(); 
+
+            console.log('Загрузка TIF:', fileName);
 
             fetch(url, { cache: "no-store" })
                 .then(response => {
@@ -151,27 +144,65 @@
                 .then(georaster => {
                     if (token !== satLoadTokens[type]) return;
 
-                    var isMultiBand = georaster.numberOfRasters > 1;
-                    var nodata = getGeorasterNodata(georaster);
+                    // Создаем Canvas нужного размера (по размерам растра)
+                    var canvas = document.createElement('canvas');
+                    canvas.width = georaster.width;
+                    canvas.height = georaster.height;
+                    var ctx = canvas.getContext('2d');
+                    var imgData = ctx.createImageData(georaster.width, georaster.height);
 
-                    var newLayer = new GeoRasterLayer({
-                        georaster: georaster,
-                        opacity: 0.8,
-                        resolution: 256,
-                        pixelValuesToColorFn: function(values) {
-                            if (isMultiBand && values.length >= 3) {
-                                var r = values[0], g = values[1], b = values[2];
-                                if (r === 0 && g === 0 && b === 0) return null;
-                                if (r === nodata || g === nodata || b === nodata) return null;
-                                return 'rgb(' + r + ',' + g + ',' + b + ')';
+                    var isMultiBand = georaster.numberOfRasters >= 3;
+                    var nodata = georaster.noDataValue !== undefined ? georaster.noDataValue : -9999;
+                    
+                    var values = georaster.values;
+                    var rBand, gBand, bBand;
+
+                    if (isMultiBand) {
+                        rBand = values[0];
+                        gBand = values[1];
+                        bBand = values[2];
+                    } else {
+                        rBand = values[0];
+                        gBand = values[0];
+                        bBand = values[0];
+                    }
+
+                    var idx = 0;
+                    for (var y = 0; y < georaster.height; y++) {
+                        for (var x = 0; x < georaster.width; x++) {
+                            var r = rBand[y][x];
+                            var g = gBand[y][x];
+                            var b = bBand[y][x];
+
+                            // Прозрачность для пустых значений
+                            if (r === nodata || (r === 0 && g === 0 && b === 0)) {
+                                imgData.data[idx] = 0;
+                                imgData.data[idx + 1] = 0;
+                                imgData.data[idx + 2] = 0;
+                                imgData.data[idx + 3] = 0;
+                            } else {
+                                imgData.data[idx] = r;
+                                imgData.data[idx + 1] = g;
+                                imgData.data[idx + 2] = b;
+                                imgData.data[idx + 3] = 255;
                             }
-                            return null;
+                            idx += 4;
                         }
-                    });
+                    }
 
-                    satRasterLayer = newLayer; 
-                    map.addLayer(newLayer);   
-                    map.fitBounds(newLayer.getBounds(), { maxZoom: 9 });
+                    ctx.putImageData(imgData, 0, 0);
+
+                    // Границы растра
+                    var bounds = [[georaster.ymin, georaster.xmin], [georaster.ymax, georaster.xmax]];
+                    
+                    // Конвертируем Canvas в картинку (Blob) и накладываем
+                    canvas.toBlob(function(blob) {
+                        var imageUrl = URL.createObjectURL(blob);
+                        var layer = L.imageOverlay(imageUrl, bounds, { opacity: 0.8 });
+                        satRasterLayer = layer;
+                        map.addLayer(layer);
+                        map.fitBounds(bounds, { maxZoom: 9 });
+                    });
                 })
                 .catch(err => {
                     console.error("Ошибка загрузки TIF:", err);
