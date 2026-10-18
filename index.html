@@ -72,40 +72,42 @@
     </div>
 
     <script>
-        // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+        // --- 1. ОБЪЯВЛЯЕМ ВСЕ ПЕРЕМЕННЫЕ ЗАРАНЕЕ ---
         var map = null;
         var watershedBorder = null;
-        var satRasterLayer = null; // Ссылка на текущий спутниковый слой
+        var satRasterLayer = null; 
 
-        // --- ИНИЦИАЛИЗАЦИЯ КАРТЫ ---
+        var stations = {};
+        var markers = {};
+        var allParams = {};
+        var activeParams = {};
+        var availableParams = null;
+        var openPopupStationId = null;
+
+        // --- 2. ФУНКЦИЯ СОЗДАНИЯ КАРТЫ ---
         function initMap() {
             if (map) {
-                map.remove(); // Полностью уничтожаем старую карту, если она была
+                map.remove(); // Уничтожаем старую карту
             }
-            // Создаем карту заново (это сбрасывает кеш georaster-layer-for-leaflet)
             map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-            // Восстанавливаем контур водосбора, если он был загружен
             if (watershedBorder) {
                 map.addLayer(watershedBorder);
             }
-
-            // Восстанавливаем спутниковый слой, если он был
             if (satRasterLayer) {
                 map.addLayer(satRasterLayer);
             }
-
-            // Восстанавливаем точки станций
+            // Восстанавливаем маркеры
             if (Object.keys(markers).length > 0) {
                 Object.values(markers).forEach(m => map.addLayer(m));
             }
         }
 
-        // Запускаем первичную инициализацию
+        // Запускаем карту
         initMap();
 
-        // Загружаем контур водосбора
+        // --- 3. ЗАГРУЗКА КОНТУРА ---
         fetch('luga_watershed.geojson').then(res => res.json()).then(data => {
             watershedBorder = L.geoJSON(data, { style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 } });
             if (document.getElementById('chkBasinBorder').checked) map.addLayer(watershedBorder);
@@ -119,7 +121,7 @@
         });
 
         // ============================================================
-        // СПУТНИКОВЫЕ СЛОИ (NDVI / ОСАДКИ) - ЯДЕРНЫЙ МЕТОД
+        // СПУТНИКОВЫЕ СЛОИ (ЯДЕРНЫЙ МЕТОД)
         // ============================================================
         var satLoadTokens = { ndvi: 0, precip: 0 };
 
@@ -130,17 +132,12 @@
         }
 
         function updateSatLayer(type, value) {
-            // 1. Сносим текущий слой и обнуляем ссылку
             satRasterLayer = null;
-            
-            // 2. Сносим старую карту и пересоздаем её (это жестко чистит кеш библиотеки)
-            initMap(); 
+            initMap(); // Уничтожаем и создаем карту заново
 
             if (value === 'none') return;
 
-            // 3. Защита от гонки
             var token = ++satLoadTokens[type];
-
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
             var url = folder + fileName + '?nocache=' + Math.random(); 
@@ -172,9 +169,8 @@
                         }
                     });
 
-                    satRasterLayer = newLayer; // Сохраняем ссылку
-                    map.addLayer(newLayer);   // Добавляем на только что созданную карту
-                    
+                    satRasterLayer = newLayer; 
+                    map.addLayer(newLayer);   
                     map.fitBounds(newLayer.getBounds(), { maxZoom: 9 });
                 })
                 .catch(err => {
@@ -191,11 +187,11 @@
             satLoadTokens.ndvi++;      
             satLoadTokens.precip++;
             satRasterLayer = null;
-            initMap(); // Пересоздаем карту, чтобы убрать растр
+            initMap(); 
         });
 
         // ============================================================
-        // ОСТАЛЬНОЙ КОД (ХИМИЯ, ГРАФИКИ, КЛИМАТ)
+        // ОСТАЛЬНОЙ КОД
         // ============================================================
         function checkAvailability(type, year, season) {
             var fileName = 'luga_' + type + '_' + season + '_' + year + '.tif';
@@ -231,14 +227,13 @@
             'Физико-химические': ['pH', 'рН', 'Жₒ', 'PO₄³⁻', 'ХПК', 'БПК5', 'ПМО']
         };
         var COLOR_WITH_FLOW = '#1976d2', COLOR_ONLY_OWN = '#f57c00';
-        var stations = {}, markers = {}, allParams = {}, activeParams = {};
-        var availableParams = null;
+        
         var FILES = [
             { url: 'stations_unified.geojson',   role: 'chemistry', dateField: 'date' },
             { url: 'stations_discharge.geojson', role: 'discharge', dateField: 'date' }
         ];
         var PALETTE = ['#1976d2', '#e65100', '#6a1b9a', '#00838f', '#c62828', '#2e7d32', '#f9a825', '#4e342e', '#37474f', '#ad1457'];
-        var chartCounter = 0, activeCharts = {}, openPopupStationId = null;
+        var chartCounter = 0, activeCharts = {};
 
         function loadFile(cfg) {
             return fetch(cfg.url).then(r => r.json()).then(data => {
@@ -384,7 +379,6 @@
         }
 
         function buildPoints() {
-            // Очищаем старые маркеры, если карта пересоздавалась
             Object.values(markers).forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
             markers = {};
 
