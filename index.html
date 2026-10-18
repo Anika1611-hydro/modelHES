@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>Тест</title>
+    <title>Тест финал</title>
     <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091"></script>
     <style>
         html, body, #map { width: 100%; height: 100%; padding: 0; margin: 0; }
@@ -13,42 +13,57 @@
 <body>
     <div id="map"></div>
     <div class="panel">
-        <button id="btnShowBorder">Показать контур</button>
-        <button id="btnShowImage">Показать тестовую картинку</button>
+        <button id="btnBorder">Показать контур</button>
+        <button id="btnImage">Показать картинку</button>
     </div>
 
     <script>
         ymaps.ready(function () {
-            // 1. Проверяем, что ключ API работает (если карта серая - ключ или лимит)
             var myMap = new ymaps.Map('map', {
                 center: [59.0, 30.5],
                 zoom: 8
             });
 
-            // 2. Тестовый контур (первые 5 точек из твоего GeoJSON, координаты уже [lat, lon])
-            var borderCoords = [
-                [59.6592, 28.0914], 
-                [59.6575, 28.1031], 
-                [59.6520, 28.1047], 
-                [59.6438, 28.1118], 
-                [59.6592, 28.0914]
-            ];
-            var borderLayer = new ymaps.GeoObject({
-                geometry: { type: "Polygon", coordinates: [borderCoords] }
-            }, { fillColor: 'FF000033', strokeColor: 'FF0000', strokeWidth: 3 });
+            // 1. РИСУЕМ НАСТОЯЩИЙ КОНТУР
+            var watershedBorder = null;
+            fetch('luga_watershed.geojson')
+                .then(res => res.text())
+                .then(text => {
+                    var data = JSON.parse(text.replace(/^\uFEFF/, ''));
+                    var coords = data.features[0].geometry.coordinates;
+                    if (data.features[0].geometry.type === 'MultiPolygon') coords = coords[0];
 
-            // 3. Тестовая картинка (прямая ссылка на твой test_ndvi.png)
-            // Если картинка не грузится, проверь, что файл лежит в корне и называется именно так
-            var imageLayer = new ymaps.GeoObject({
-                geometry: { type: "Rectangle", coordinates: [[59.21, 27.67], [59.74, 28.56]] }
-            }, {
-                fillImage: { href: 'test_ndvi.png', opacity: 0.8 },
-                stroke: false
-            });
+                    // Координаты в файле уже [lat, lon] (я их перевернул)
+                    watershedBorder = new ymaps.GeoObject({
+                        geometry: { type: "Polygon", coordinates: [coords] }
+                    }, { fillColor: '00000000', strokeColor: '#2e7d32', strokeWidth: 3, strokeStyle: 'dash' });
+                });
 
-            // Кнопки
-            document.getElementById('btnShowBorder').onclick = function() { myMap.geoObjects.add(borderLayer); };
-            document.getElementById('btnShowImage').onclick = function() { myMap.geoObjects.add(imageLayer); };
+            document.getElementById('btnBorder').onclick = function() {
+                if (watershedBorder) myMap.geoObjects.add(watershedBorder);
+                else alert("Контур еще грузится");
+            };
+
+            // 2. НАКЛАДЫВАЕМ КАРТИНКУ КАК СЛОЙ (Layer)
+            // Координаты углов прямоугольника, в который вписан твой водосбор
+            var bounds = [[58.425, 27.670], [59.709, 31.137]]; 
+            var imageLayer = null;
+
+            document.getElementById('btnImage').onclick = function() {
+                if (imageLayer) myMap.layers.remove(imageLayer);
+                
+                // Используем Layer с прозрачностью
+                imageLayer = new ymaps.Layer('test_ndvi.png', {
+                    transparent: true, 
+                    projection: ymaps.projection.wgs84Mercator
+                });
+
+                // Привязываем к границам
+                imageLayer.options.set('bounds', bounds);
+                imageLayer.options.set('opacity', 0.9);
+
+                myMap.layers.add(imageLayer);
+            };
         });
     </script>
 </body>
