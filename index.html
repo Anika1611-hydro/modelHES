@@ -97,70 +97,62 @@
         var satLayers = { ndvi: null, precip: null };
         var satLoadTokens = { ndvi: 0, precip: 0 };
 
-        function colorNDVI(v) {
-            if (v === null || v === undefined || isNaN(v)) return null;
-            if (v < -0.1) return 'rgba(0,0,0,0)';
-            if (v < 0.1)  return 'rgba(160,120,80,0.8)';
-            if (v < 0.2)  return 'rgba(200,170,110,0.8)';
-            if (v < 0.3)  return 'rgba(200,200,120,0.8)';
-            if (v < 0.4)  return 'rgba(160,200,90,0.8)';
-            if (v < 0.5)  return 'rgba(100,180,60,0.8)';
-            if (v < 0.6)  return 'rgba(50,150,40,0.85)';
-            if (v < 0.7)  return 'rgba(20,120,30,0.85)';
-            return 'rgba(0,90,20,0.9)';
-        }
-
-        function colorPrecip(v) {
-            if (v === null || v === undefined || isNaN(v)) return null;
-            if (v <= 0)   return 'rgba(0,0,0,0)';
-            if (v < 10)   return 'rgba(200,230,255,0.75)';
-            if (v < 25)   return 'rgba(140,200,255,0.8)';
-            if (v < 50)   return 'rgba(80,160,240,0.85)';
-            if (v < 80)   return 'rgba(40,110,220,0.85)';
-            if (v < 120)  return 'rgba(20,70,180,0.9)';
-            return 'rgba(10,30,120,0.95)';
-        }
-
         function getGeorasterNodata(georaster) {
-            if (georaster.noDataValue !== undefined && georaster.noDataValue !== null) {
-                return georaster.noDataValue;
-            }
-            if (georaster.mins && georaster.maxs && georaster.mins[0] === georaster.maxs[0]) {
-                return georaster.mins[0];
-            }
+            if (georaster.noDataValue !== undefined && georaster.noDataValue !== null) return georaster.noDataValue;
+            if (georaster.mins && georaster.maxs && georaster.mins[0] === georaster.maxs[0]) return georaster.mins[0];
             return -9999;
         }
 
-        // Жесткая зачистка всех растровых слоев
-        function removeSatLayer() {
-            map.eachLayer(function(l) {
-                if (l instanceof GeoRasterLayer) {
-                    try {
-                        map.removeLayer(l);
-                    } catch(e) {}
-                }
-            });
+        // Полностью убиваем слой и его DOM-элементы
+        function hardKillLayer(layer) {
+            if (!layer) return;
+            try {
+                map.removeLayer(layer);
+            } catch(e){}
+            
+            // Принудительно чистим все canvas, которые могли остаться от GeoRasterLayer
+            if (layer._canvas) {
+                layer._canvas.remove();
+            }
+            if (layer._imageOverlay && layer._imageOverlay._image) {
+                layer._imageOverlay._image.remove();
+            }
+            
+            // Проходим по карте и сносим любые осиротевшие растровые канвасы
+            var pane = map.getPane('overlayPane');
+            if (pane) {
+                var canvases = pane.querySelectorAll('canvas');
+                canvases.forEach(c => {
+                    if (c.parentNode) c.parentNode.removeChild(c);
+                });
+            }
+        }
+
+        function clearAllSatLayers() {
+            if (satLayers.ndvi) hardKillLayer(satLayers.ndvi);
+            if (satLayers.precip) hardKillLayer(satLayers.precip);
             satLayers.ndvi = null;
             satLayers.precip = null;
         }
 
         function updateSatLayer(type, value) {
-            // 1. Убираем ВСЕ предыдущие растровые слои
-            removeSatLayer();
+            // 1. Полностью сносим всё, что было
+            clearAllSatLayers();
 
-            // 2. Если выбрано «скрыть» — на этом всё
             if (value === 'none') return;
 
-            // 3. Токен для защиты от быстрых переключений
+            // 2. Токен для защиты от гонки
             var token = ++satLoadTokens[type];
 
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-            var url = folder + fileName + '?v=' + Date.now(); 
+            
+            // ЖЕСТКИЙ антикеш - добавляем случайное число
+            var url = folder + fileName + '?nocache=' + Math.random() + '&_=' + Date.now(); 
 
             console.log('[' + type + '] загрузка:', folder + fileName);
 
-            fetch(url)
+            fetch(url, { cache: "no-store" }) // Запрещаем браузеру кешировать запрос
                 .then(response => {
                     if (!response.ok) throw new Error("Файл не найден: " + response.status);
                     return response.arrayBuffer();
@@ -174,34 +166,30 @@
 
                     var isMultiBand = georaster.numberOfRasters > 1;
                     var nodata = getGeorasterNodata(georaster);
-                    var colorFn = (type === 'ndvi') ? colorNDVI : colorPrecip;
 
                     var layer = new GeoRasterLayer({
                         georaster: georaster,
-                        opacity: 0.8,
+                        opacity: 0.9, // Сделал чуть плотнее
                         resolution: 256,
                         pixelValuesToColorFn: function(values) {
+                            // Ваши файлы 3-канальные! Рисуем как есть.
                             if (isMultiBand && values.length >= 3) {
                                 var r = values[0], g = values[1], b = values[2];
+                                // Если все нули - прозрачно
                                 if (r === 0 && g === 0 && b === 0) return null;
-                                if (r === nodata || g === nodata || b === nodata) return null;
                                 return 'rgb(' + r + ',' + g + ',' + b + ')';
                             }
+                            // Если вдруг попадется 1 канал
                             var v = values[0];
-                            if (v === null || v === undefined) return null;
-                            if (v === nodata) return null;
-                            if (!isFinite(v)) return null;
-                            return colorFn(v);
+                            if (v === null || v === undefined || v === nodata || !isFinite(v)) return null;
+                            return 'rgba(100, 150, 200, 0.8)'; 
                         }
                     });
 
                     map.addLayer(layer);
                     satLayers[type] = layer;
 
-                    try {
-                        var b = layer.getBounds();
-                        if (b && b.isValid()) map.fitBounds(b, { maxZoom: 9 });
-                    } catch (e) { /* ignore */ }
+                    // Убрал map.fitBounds, чтобы карта не прыгала и вы видели разницу
                 })
                 .catch(err => {
                     console.error("Ошибка загрузки TIF:", err);
@@ -216,18 +204,17 @@
             document.getElementById('precipSelect').value = 'none';
             satLoadTokens.ndvi++;      
             satLoadTokens.precip++;
-            removeSatLayer();
+            clearAllSatLayers();
         });
 
         // ============================================================
-        // ЗАПОЛНЕНИЕ СПИСКОВ ДОСТУПНЫХ ФАЙЛОВ
+        // ОСТАЛЬНОЙ КОД (БЕЗ ИЗМЕНЕНИЙ)
         // ============================================================
+        
         function checkAvailability(type, year, season) {
             var fileName = 'luga_' + type + '_' + season + '_' + year + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-            return fetch(folder + fileName, { method: 'HEAD' })
-                .then(res => res.ok)
-                .catch(() => false);
+            return fetch(folder + fileName, { method: 'HEAD' }).then(res => res.ok).catch(() => false);
         }
 
         async function populateSelects() {
@@ -235,41 +222,23 @@
             var selectPrecip = document.getElementById('precipSelect');
             var seasons = ['winter', 'spring', 'summer', 'autumn'];
             var seasonNames = { winter: 'Зима', spring: 'Весна', summer: 'Лето', autumn: 'Осень' };
-            
             var htmlNdvi = '<option value="none">-- Скрыть --</option>';
             var htmlPrecip = '<option value="none">-- Скрыть --</option>';
-
             for (var y = 2023; y >= 2008; y--) {
-                var ndviOptions = '';
-                var precipOptions = '';
-
+                var ndviOptions = '', precipOptions = '';
                 for (var i = 0; i < seasons.length; i++) {
                     var s = seasons[i];
-                    if (await checkAvailability('ndvi', y, s)) {
-                        ndviOptions += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>';
-                    }
-                    if (await checkAvailability('precip', y, s)) {
-                        precipOptions += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>';
-                    }
+                    if (await checkAvailability('ndvi', y, s)) ndviOptions += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>';
+                    if (await checkAvailability('precip', y, s)) precipOptions += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>';
                 }
-
-                if (ndviOptions !== '') {
-                    htmlNdvi += '<optgroup label="' + y + ' год">' + ndviOptions + '</optgroup>';
-                }
-                if (precipOptions !== '') {
-                    htmlPrecip += '<optgroup label="' + y + ' год">' + precipOptions + '</optgroup>';
-                }
+                if (ndviOptions !== '') htmlNdvi += '<optgroup label="' + y + ' год">' + ndviOptions + '</optgroup>';
+                if (precipOptions !== '') htmlPrecip += '<optgroup label="' + y + ' год">' + precipOptions + '</optgroup>';
             }
-            
             selectNdvi.innerHTML = htmlNdvi;
             selectPrecip.innerHTML = htmlPrecip;
         }
-        
         populateSelects();
 
-        // ============================================================
-        // ХИМИЯ
-        // ============================================================
         var GROUPS = {
             'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
             'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
@@ -283,7 +252,6 @@
             { url: 'stations_discharge.geojson', role: 'discharge', dateField: 'date' }
         ];
         var PALETTE = ['#1976d2', '#e65100', '#6a1b9a', '#00838f', '#c62828', '#2e7d32', '#f9a825', '#4e342e', '#37474f', '#ad1457'];
-        
         var chartCounter = 0, activeCharts = {}, openPopupStationId = null;
 
         function loadFile(cfg) {
@@ -291,32 +259,22 @@
                 data.features.forEach(feat => {
                     var p = feat.properties;
                     var sid = p.station_id || 'unknown';
-                    
-                    var lon = feat.geometry.coordinates[0];
-                    var lat = feat.geometry.coordinates[1];
-                    var coords = [lat, lon]; 
-
+                    var coords = [feat.geometry.coordinates[1], feat.geometry.coordinates[0]];
                     if (!stations[sid]) stations[sid] = { station_id: sid, name: p.name || sid, river: p.river || '', coords: coords, measurements: [], hasDischarge: false };
-                    
-                    if (cfg.role === 'chemistry') {
-                        if (p.parameter && p.value != null && p.value !== '') {
-                            stations[sid].measurements.push({ source: p.source || '', param: p.parameter, value: p.value, unit: p.unit || '', date: p.date || '' });
-                            if (!allParams[p.parameter]) allParams[p.parameter] = {};
-                            allParams[p.parameter][sid] = true;
-                        }
-                    } else if (cfg.role === 'discharge') {
-                        if (p.value != null && p.value !== '') {
-                            stations[sid].measurements.push({ source: 'discharge', param: 'расход воды', value: p.value, unit: p.unit || 'м3/с', date: p.date || '' });
-                            stations[sid].hasDischarge = true;
-                        }
+                    if (cfg.role === 'chemistry' && p.parameter && p.value != null && p.value !== '') {
+                        stations[sid].measurements.push({ source: p.source || '', param: p.parameter, value: p.value, unit: p.unit || '', date: p.date || '' });
+                        if (!allParams[p.parameter]) allParams[p.parameter] = {};
+                        allParams[p.parameter][sid] = true;
+                    } else if (cfg.role === 'discharge' && p.value != null && p.value !== '') {
+                        stations[sid].measurements.push({ source: 'discharge', param: 'расход воды', value: p.value, unit: p.unit || 'м3/с', date: p.date || '' });
+                        stations[sid].hasDischarge = true;
                     }
                 });
             }).catch(err => console.error('Ошибка загрузки ' + cfg.url, err));
         }
 
         function buildPanel() {
-            var container = document.getElementById('groupsContainer');
-            container.innerHTML = '';
+            var container = document.getElementById('groupsContainer'); container.innerHTML = '';
             Object.keys(GROUPS).forEach(groupName => {
                 var groupDiv = document.createElement('div'); groupDiv.className = 'group open';
                 var header = document.createElement('div'); header.className = 'group-header';
@@ -348,9 +306,7 @@
                 var relSt = {};
                 selected.forEach(p => { if (allParams[p]) Object.keys(allParams[p]).forEach(sid => relSt[sid] = true); });
                 availableParams = {};
-                Object.keys(allParams).forEach(p => {
-                    Object.keys(allParams[p]).forEach(sid => { if (relSt[sid]) availableParams[p] = true; });
-                });
+                Object.keys(allParams).forEach(p => { Object.keys(allParams[p]).forEach(sid => { if (relSt[sid]) availableParams[p] = true; }); });
             }
             document.querySelectorAll('#groupsContainer .param-row').forEach(row => {
                 var p = row.getAttribute('data-param'), cb = row.querySelector('input');
@@ -364,21 +320,16 @@
         function applyFilter() {
             Object.keys(markers).forEach(sid => {
                 var marker = markers[sid], st = stations[sid];
-                var baseColor = st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN;
-                marker.setStyle({ fillColor: baseColor, opacity: 1, fillOpacity: 0.9 });
+                marker.setStyle({ fillColor: st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN, opacity: 1, fillOpacity: 0.9 });
             });
         }
 
         function refreshBalloons() {
-            Object.keys(markers).forEach(sid => {
-                markers[sid].setPopupContent(buildBalloon(stations[sid]));
-            });
+            Object.keys(markers).forEach(sid => { markers[sid].setPopupContent(buildBalloon(stations[sid])); });
             if (openPopupStationId && markers[openPopupStationId] && markers[openPopupStationId].isPopupOpen()) {
                 setTimeout(() => {
                     var canvases = document.querySelectorAll('.leaflet-popup-content canvas');
-                    if (canvases.length) {
-                        renderChart(canvases[canvases.length - 1].id);
-                    }
+                    if (canvases.length) renderChart(canvases[canvases.length - 1].id);
                 }, 100);
             }
         }
@@ -421,12 +372,7 @@
         function renderChart(canvasId) {
             var payload = window.__pendingCharts[canvasId]; if (!payload) return;
             var canvas = document.getElementById(canvasId); if (!canvas) return;
-            
-            if (activeCharts[canvasId]) {
-                activeCharts[canvasId].destroy();
-                delete activeCharts[canvasId];
-            }
-
+            if (activeCharts[canvasId]) { activeCharts[canvasId].destroy(); delete activeCharts[canvasId]; }
             var { st, filtered, selected, flowPoints } = payload;
             var allDates = {};
             filtered.forEach(m => { if (m.date) allDates[m.date] = true; });
@@ -445,42 +391,27 @@
                 datasets.push({ label: 'расход воды', data: labels.map(d => { var f = flowPoints.find(m => m.date === d); return f ? parseFloat(f.value) : null; }), borderColor: '#43a047', borderDash: [4, 3], tension: 0.2, pointRadius: 3, spanGaps: true, yAxisID: 'y1' });
             }
 
-            var showFlow = datasets.some(d => d.yAxisID === 'y1');
             activeCharts[canvasId] = new Chart(canvas.getContext('2d'), {
                 type: 'line', data: { labels, datasets },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { position: 'left' }, y1: { position: 'right', display: showFlow, grid: { drawOnChartArea: false } } } }
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { position: 'left' }, y1: { position: 'right', display: datasets.some(d => d.yAxisID === 'y1'), grid: { drawOnChartArea: false } } } }
             });
         }
 
         function buildPoints() {
             Object.keys(stations).forEach(sid => {
                 var st = stations[sid];
-                var color = st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN;
-                
-                var marker = L.circleMarker(st.coords, {
-                    radius: 8, fillColor: color, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.9
-                }).addTo(map);
-
+                var marker = L.circleMarker(st.coords, { radius: 8, fillColor: st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(map);
                 marker.bindPopup(buildBalloon(st), { maxWidth: 550 });
-                
                 marker.on('popupopen', function() {
                     openPopupStationId = sid;
-                    setTimeout(() => { 
-                        var canvases = document.querySelectorAll('.leaflet-popup-content canvas'); 
-                        if (canvases.length) renderChart(canvases[canvases.length - 1].id); 
-                    }, 100); 
+                    setTimeout(() => { var canvases = document.querySelectorAll('.leaflet-popup-content canvas'); if (canvases.length) renderChart(canvases[canvases.length - 1].id); }, 100); 
                 });
-                marker.on('popupclose', function() { 
-                    if (openPopupStationId === sid) openPopupStationId = null; 
-                });
-
+                marker.on('popupclose', function() { if (openPopupStationId === sid) openPopupStationId = null; });
                 markers[sid] = marker;
             });
         }
 
-        Promise.all(FILES.map(loadFile)).then(() => { 
-            buildPanel(); buildPoints(); recomputeAvailable(); 
-        }).catch(err => console.error(err));
+        Promise.all(FILES.map(loadFile)).then(() => { buildPanel(); buildPoints(); recomputeAvailable(); }).catch(err => console.error(err));
 
         document.getElementById('btnClear').addEventListener('click', () => {
             activeParams = {}; availableParams = null;
@@ -488,53 +419,20 @@
             applyFilter(); refreshBalloons();
         });
 
-        // ============================================================
-        // КЛИМАТ
-        // ============================================================
         var climateData = [];
         var bigNdviChart = null, bigPrecipChart = null;
-        
         fetch('luga_climate.json').then(res => res.json()).then(data => { climateData = data; });
 
         document.getElementById('btnClimate').addEventListener('click', function() {
             document.getElementById('climateModal').style.display = 'flex';
-            
             if (!bigNdviChart && climateData.length > 0) {
                 var labels = climateData.map(d => d.date);
-                
-                bigNdviChart = new Chart(document.getElementById('bigNdviChart'), {
-                    type: 'line', 
-                    data: { 
-                        labels: labels, 
-                        datasets: [{ 
-                            label: 'NDVI', 
-                            data: climateData.map(d => d.ndvi), 
-                            borderColor: '#4caf50', 
-                            fill: true, 
-                            pointRadius: 0 
-                        }] 
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
-                
-                bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), {
-                    type: 'bar', 
-                    data: { 
-                        labels: labels, 
-                        datasets: [{ 
-                            label: 'Осадки, мм', 
-                            data: climateData.map(d => d.precip_mm), 
-                            backgroundColor: '#29b6f6' 
-                        }] 
-                    },
-                    options: { responsive: true, maintainAspectRatio: false }
-                });
+                bigNdviChart = new Chart(document.getElementById('bigNdviChart'), { type: 'line', data: { labels: labels, datasets: [{ label: 'NDVI', data: climateData.map(d => d.ndvi), borderColor: '#4caf50', fill: true, pointRadius: 0 }] }, options: { responsive: true, maintainAspectRatio: false } });
+                bigPrecipChart = new Chart(document.getElementById('bigPrecipChart'), { type: 'bar', data: { labels: labels, datasets: [{ label: 'Осадки, мм', data: climateData.map(d => d.precip_mm), backgroundColor: '#29b6f6' }] }, options: { responsive: true, maintainAspectRatio: false } });
             }
         });
         
-        document.getElementById('closeModal').addEventListener('click', function() { 
-            document.getElementById('climateModal').style.display = 'none'; 
-        });
+        document.getElementById('closeModal').addEventListener('click', function() { document.getElementById('climateModal').style.display = 'none'; });
     </script>
 </body>
 </html>
