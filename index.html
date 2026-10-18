@@ -74,7 +74,9 @@
         .modal-chart-box { flex: 1; height: 350px; }
         
         /* CSS-фикс для прозрачности картинки Яндекса */
-        .ymaps-2-1-79-ground-pane { mix-blend-mode: multiply; }
+        .ymaps-2-1-79-ground-pane { 
+            mix-blend-mode: multiply; 
+        }
     </style>
     <script src="https://api-maps.yandex.ru/2.1/?lang=ru_RU&apikey=4d843fd6-3ec5-4f2b-9e01-0bd3ad74c091"></script>
 </head>
@@ -160,7 +162,7 @@
             // --- 3. КАРТИНКИ (SVG-магия) ---
             var ndviLayer = null, precipLayer = null;
 
-            function updateSatLayer(type, value) {
+                        function updateSatLayer(type, value) {
                 if (type === 'ndvi' && ndviLayer) { myMap.geoObjects.remove(ndviLayer); ndviLayer = null; }
                 if (type === 'precip' && precipLayer) { myMap.geoObjects.remove(precipLayer); precipLayer = null; }
                 if (value === 'none') return;
@@ -168,27 +170,15 @@
                 var fileName = 'luga_' + type + '_' + value + '.png';
                 var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
                 
-                // 1. Создаем прямоугольник с картинкой (Яндекс его наложит, но покрасит фон)
+                // Создаем прямоугольник с картинкой
                 var imgLayer = new ymaps.GeoObject({
                     geometry: { type: "Rectangle", coordinates: [[58.425, 27.670], [59.709, 31.137]] }
                 }, {
-                    fillImage: { href: folder + fileName, opacity: 0.9 },
+                    // ВАЖНО: opacity: 1 (чтобы сработал CSS-фильтр прозрачности)
+                    fillImage: { href: folder + fileName, opacity: 1 },
                     stroke: false
                 });
 
-                // 2. Создаем полигон (маску) точно по форме водосбора
-                var maskLayer = new ymaps.GeoObject({
-                    geometry: { type: "Polygon", coordinates: [basinCoords] }
-                }, {
-                    fillColor: '00000000', // Прозрачная заливка
-                    stroke: false
-                });
-
-                // ВНИМАНИЕ: Яндекс не умеет делать SVG-маски из коробки, 
-                // поэтому мы просто накладываем картинку и сверху рисуем контур, чтобы визуально показать область.
-                // Но чтобы картинка не вылезала за пределы, Яндекс не дает инструментов.
-                // Единственный выход - использовать прозрачные PNG (что мы уже сделали).
-                
                 myMap.geoObjects.add(imgLayer);
                 if (type === 'ndvi') ndviLayer = imgLayer;
                 if (type === 'precip') precipLayer = imgLayer;
