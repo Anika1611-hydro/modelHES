@@ -3,15 +3,9 @@
 <head>
     <meta charset="utf-8" />
     <title>Гидрохимия на карте</title>
-    
-    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
-    <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    
-    <!-- Библиотеки для чтения GeoTIFF (растров) прямо в браузере -->
     <script src="https://unpkg.com/georaster"></script>
     <script src="https://unpkg.com/georaster-layer-for-leaflet"></script>
 
@@ -79,19 +73,13 @@
         var map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // --- 1. КОНТУР И МАСКА ДЛЯ РАСТРА ---
         var watershedBorder = null;
-        var watershedMask = null; // Сюда сохраним GeoJSON для маски
+        var watershedMask = null;
 
         fetch('luga_watershed.geojson').then(res => res.json()).then(data => {
-            // Сохраняем для маски
             watershedMask = data; 
-
-            // Рисуем контур
             watershedBorder = L.geoJSON(data, { style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 } });
             if (document.getElementById('chkBasinBorder').checked) map.addLayer(watershedBorder);
-            
-            console.log("Контур и маска загружены.");
         }).catch(err => console.error('Ошибка контура:', err));
 
         document.getElementById('chkBasinBorder').addEventListener('change', function(e) {
@@ -101,22 +89,16 @@
             }
         });
 
-        // --- 2. ЧТЕНИЕ РАСТРОВ (GeoTIFF) ---
         var ndviLayer = null, precipLayer = null;
 
         function updateSatLayer(type, value) {
-            // Удаляем старые слои
             if (type === 'ndvi' && ndviLayer) { map.removeLayer(ndviLayer); ndviLayer = null; }
             if (type === 'precip' && precipLayer) { map.removeLayer(precipLayer); precipLayer = null; }
             if (value === 'none') return;
 
-            // Формируем путь. У нас теперь TIF, без -converted
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
             
-            // Показываем индикатор загрузки (опционально)
-            console.log("Загрузка файла:", folder + fileName);
-
             fetch(folder + fileName)
                 .then(response => {
                     if (!response.ok) throw new Error("Файл не найден: " + response.status);
@@ -124,50 +106,99 @@
                 })
                 .then(arrayBuffer => parseGeoraster(arrayBuffer))
                 .then(georaster => {
-                    // Создаем слой
+                    
+                    var colorFunction;
+                    
+                    if (type === 'ndvi') {
+                        colorFunction = function(values) {
+                            var value = values[0];
+                            if (value === 0 || value === -9999 || value === null) return null;
+                            if (value < 1000) return '#8B4513';
+                            if (value < 3000) return '#D2691E';
+                            if (value < 5000) return '#FFD700';
+                            if (value < 7000) return '#9ACD32';
+                            return '#006400';
+                        };
+                    } else {
+                        colorFunction = function(values) {
+                            var value = values[0];
+                            if (value === 0 || value === -9999 || value === null) return null;
+                            if (value < 20) return '#E0F7FA';
+                            if (value < 50) return '#B2EBF2';
+                            if (value < 80) return '#4DD0E1';
+                            if (value < 120) return '#0097A7';
+                            if (value < 200) return '#006064';
+                            return '#003366';
+                        };
+                    }
+
                     var layer = new GeoRasterLayer({
                         georaster: georaster,
                         opacity: 0.8,
                         resolution: 256,
-                        // МАГИЯ: Обрезаем растр по нашему водосбору
                         mask: watershedMask,
-                        mask_strategy: 'inside' // Показываем только то, что ВНУТРИ
+                        mask_strategy: 'inside',
+                        noDataValue: 0,
+                        pixelValuesToColorFn: colorFunction
                     });
                     
                     map.addLayer(layer);
                     if (type === 'ndvi') ndviLayer = layer;
                     if (type === 'precip') precipLayer = layer;
-                    
-                    // Опционально: подлетаем к границам растра
-                    // map.fitBounds(layer.getBounds()); 
                 })
                 .catch(err => {
                     console.error("Ошибка загрузки TIF:", err);
-                    alert("Не удалось загрузить слой. Проверьте консоль (F12).");
                 });
         }
 
         document.getElementById('ndviSelect').addEventListener('change', e => updateSatLayer('ndvi', e.target.value));
         document.getElementById('precipSelect').addEventListener('change', e => updateSatLayer('precip', e.target.value));
 
-        // --- 3. СПИСКИ ---
-        function populateSelects() {
+        function checkAvailability(type, year, season) {
+            var fileName = 'luga_' + type + '_' + season + '_' + year + '.tif';
+            var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
+            return fetch(folder + fileName, { method: 'HEAD' })
+                .then(res => res.ok)
+                .catch(() => false);
+        }
+
+        async function populateSelects() {
             var selectNdvi = document.getElementById('ndviSelect');
             var selectPrecip = document.getElementById('precipSelect');
             var seasons = ['winter', 'spring', 'summer', 'autumn'];
             var seasonNames = { winter: 'Зима', spring: 'Весна', summer: 'Лето', autumn: 'Осень' };
-            var html = '<option value="none">-- Скрыть --</option>';
+            
+            var htmlNdvi = '<option value="none">-- Скрыть --</option>';
+            var htmlPrecip = '<option value="none">-- Скрыть --</option>';
+
             for (var y = 2023; y >= 2008; y--) {
-                html += '<optgroup label="' + y + ' год">';
-                seasons.forEach(function(s) { html += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>'; });
-                html += '</optgroup>';
+                var ndviOptions = '';
+                var precipOptions = '';
+
+                for (var i = 0; i < seasons.length; i++) {
+                    var s = seasons[i];
+                    if (await checkAvailability('ndvi', y, s)) {
+                        ndviOptions += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>';
+                    }
+                    if (await checkAvailability('precip', y, s)) {
+                        precipOptions += '<option value="' + s + '_' + y + '">' + seasonNames[s] + '</option>';
+                    }
+                }
+
+                if (ndviOptions !== '') {
+                    htmlNdvi += '<optgroup label="' + y + ' год">' + ndviOptions + '</optgroup>';
+                }
+                if (precipOptions !== '') {
+                    htmlPrecip += '<optgroup label="' + y + ' год">' + precipOptions + '</optgroup>';
+                }
             }
-            selectNdvi.innerHTML = html;
-            selectPrecip.innerHTML = html;
+            
+            selectNdvi.innerHTML = htmlNdvi;
+            selectPrecip.innerHTML = htmlPrecip;
         }
+        
         populateSelects();
 
-        // --- 4. ХИМИЯ ---
         var GROUPS = {
             'Азотистые': ['NH₄⁺', 'азот нитритный', 'NO₃', 'NO₂'],
             'Металлы': ['Cu', 'Feобщ', 'Feраств', 'Mn', 'Zn', 'Mg', 'Ca', 'Cr', 'Hg', 'Pb', 'Cd', 'Fe'],
@@ -190,7 +221,6 @@
                     var p = feat.properties;
                     var sid = p.station_id || 'unknown';
                     
-                    // Координаты в правильном порядке [lon, lat]
                     var lon = feat.geometry.coordinates[0];
                     var lat = feat.geometry.coordinates[1];
                     var coords = [lat, lon]; 
@@ -387,7 +417,6 @@
             applyFilter(); refreshBalloons();
         });
 
-        // --- 5. КЛИМАТ ---
         var climateData = [];
         var bigNdviChart = null, bigPrecipChart = null;
         
