@@ -72,14 +72,41 @@
     </div>
 
     <script>
-        var map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
+        // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+        var map = null;
         var watershedBorder = null;
-        var watershedMask = null;
+        var satRasterLayer = null; // Ссылка на текущий спутниковый слой
 
+        // --- ИНИЦИАЛИЗАЦИЯ КАРТЫ ---
+        function initMap() {
+            if (map) {
+                map.remove(); // Полностью уничтожаем старую карту, если она была
+            }
+            // Создаем карту заново (это сбрасывает кеш georaster-layer-for-leaflet)
+            map = L.map('map', { attributionControl: false }).setView([59.0, 30.5], 8);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+            // Восстанавливаем контур водосбора, если он был загружен
+            if (watershedBorder) {
+                map.addLayer(watershedBorder);
+            }
+
+            // Восстанавливаем спутниковый слой, если он был
+            if (satRasterLayer) {
+                map.addLayer(satRasterLayer);
+            }
+
+            // Восстанавливаем точки станций
+            if (Object.keys(markers).length > 0) {
+                Object.values(markers).forEach(m => map.addLayer(m));
+            }
+        }
+
+        // Запускаем первичную инициализацию
+        initMap();
+
+        // Загружаем контур водосбора
         fetch('luga_watershed.geojson').then(res => res.json()).then(data => {
-            watershedMask = data; 
             watershedBorder = L.geoJSON(data, { style: { color: '#2e7d32', weight: 3, dashArray: '5, 5', fillOpacity: 0 } });
             if (document.getElementById('chkBasinBorder').checked) map.addLayer(watershedBorder);
         }).catch(err => console.error('Ошибка контура:', err));
@@ -92,9 +119,8 @@
         });
 
         // ============================================================
-        // СПУТНИКОВЫЕ СЛОИ (NDVI / ОСАДКИ)
+        // СПУТНИКОВЫЕ СЛОИ (NDVI / ОСАДКИ) - ЯДЕРНЫЙ МЕТОД
         // ============================================================
-        var satLayers = { ndvi: null, precip: null };
         var satLoadTokens = { ndvi: 0, precip: 0 };
 
         function getGeorasterNodata(georaster) {
@@ -103,93 +129,53 @@
             return -9999;
         }
 
-        // Полностью убиваем слой и его DOM-элементы
-        function hardKillLayer(layer) {
-            if (!layer) return;
-            try {
-                map.removeLayer(layer);
-            } catch(e){}
-            
-            // Принудительно чистим все canvas, которые могли остаться от GeoRasterLayer
-            if (layer._canvas) {
-                layer._canvas.remove();
-            }
-            if (layer._imageOverlay && layer._imageOverlay._image) {
-                layer._imageOverlay._image.remove();
-            }
-            
-            // Проходим по карте и сносим любые осиротевшие растровые канвасы
-            var pane = map.getPane('overlayPane');
-            if (pane) {
-                var canvases = pane.querySelectorAll('canvas');
-                canvases.forEach(c => {
-                    if (c.parentNode) c.parentNode.removeChild(c);
-                });
-            }
-        }
-
-        function clearAllSatLayers() {
-            if (satLayers.ndvi) hardKillLayer(satLayers.ndvi);
-            if (satLayers.precip) hardKillLayer(satLayers.precip);
-            satLayers.ndvi = null;
-            satLayers.precip = null;
-        }
-
         function updateSatLayer(type, value) {
-            // 1. Полностью сносим всё, что было
-            clearAllSatLayers();
+            // 1. Сносим текущий слой и обнуляем ссылку
+            satRasterLayer = null;
+            
+            // 2. Сносим старую карту и пересоздаем её (это жестко чистит кеш библиотеки)
+            initMap(); 
 
             if (value === 'none') return;
 
-            // 2. Токен для защиты от гонки
+            // 3. Защита от гонки
             var token = ++satLoadTokens[type];
 
             var fileName = 'luga_' + type + '_' + value + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
-            
-            // ЖЕСТКИЙ антикеш - добавляем случайное число
-            var url = folder + fileName + '?nocache=' + Math.random() + '&_=' + Date.now(); 
+            var url = folder + fileName + '?nocache=' + Math.random(); 
 
-            console.log('[' + type + '] загрузка:', folder + fileName);
-
-            fetch(url, { cache: "no-store" }) // Запрещаем браузеру кешировать запрос
+            fetch(url, { cache: "no-store" })
                 .then(response => {
                     if (!response.ok) throw new Error("Файл не найден: " + response.status);
                     return response.arrayBuffer();
                 })
                 .then(arrayBuffer => parseGeoraster(arrayBuffer))
                 .then(georaster => {
-                    if (token !== satLoadTokens[type]) {
-                        console.log('[' + type + '] устаревшая загрузка, пропускаем:', fileName);
-                        return;
-                    }
+                    if (token !== satLoadTokens[type]) return;
 
                     var isMultiBand = georaster.numberOfRasters > 1;
                     var nodata = getGeorasterNodata(georaster);
 
-                    var layer = new GeoRasterLayer({
+                    var newLayer = new GeoRasterLayer({
                         georaster: georaster,
-                        opacity: 0.9, // Сделал чуть плотнее
+                        opacity: 0.8,
                         resolution: 256,
                         pixelValuesToColorFn: function(values) {
-                            // Ваши файлы 3-канальные! Рисуем как есть.
                             if (isMultiBand && values.length >= 3) {
                                 var r = values[0], g = values[1], b = values[2];
-                                // Если все нули - прозрачно
                                 if (r === 0 && g === 0 && b === 0) return null;
+                                if (r === nodata || g === nodata || b === nodata) return null;
                                 return 'rgb(' + r + ',' + g + ',' + b + ')';
                             }
-                            // Если вдруг попадется 1 канал
-                            var v = values[0];
-                            if (v === null || v === undefined || v === nodata || !isFinite(v)) return null;
-                            return 'rgba(100, 150, 200, 0.8)'; 
+                            return null;
                         }
                     });
 
-                    map.addLayer(layer);
-                    satLayers[type] = layer;
-
-                    // Убрал map.fitBounds, чтобы карта не прыгала и вы видели разницу
+                    satRasterLayer = newLayer; // Сохраняем ссылку
+                    map.addLayer(newLayer);   // Добавляем на только что созданную карту
+                    
+                    map.fitBounds(newLayer.getBounds(), { maxZoom: 9 });
                 })
                 .catch(err => {
                     console.error("Ошибка загрузки TIF:", err);
@@ -204,13 +190,13 @@
             document.getElementById('precipSelect').value = 'none';
             satLoadTokens.ndvi++;      
             satLoadTokens.precip++;
-            clearAllSatLayers();
+            satRasterLayer = null;
+            initMap(); // Пересоздаем карту, чтобы убрать растр
         });
 
         // ============================================================
-        // ОСТАЛЬНОЙ КОД (БЕЗ ИЗМЕНЕНИЙ)
+        // ОСТАЛЬНОЙ КОД (ХИМИЯ, ГРАФИКИ, КЛИМАТ)
         // ============================================================
-        
         function checkAvailability(type, year, season) {
             var fileName = 'luga_' + type + '_' + season + '_' + year + '.tif';
             var folder = (type === 'ndvi') ? 'NDVI_Years/' : 'Precip_Years/';
@@ -398,6 +384,10 @@
         }
 
         function buildPoints() {
+            // Очищаем старые маркеры, если карта пересоздавалась
+            Object.values(markers).forEach(m => { if (map.hasLayer(m)) map.removeLayer(m); });
+            markers = {};
+
             Object.keys(stations).forEach(sid => {
                 var st = stations[sid];
                 var marker = L.circleMarker(st.coords, { radius: 8, fillColor: st.hasDischarge ? COLOR_WITH_FLOW : COLOR_ONLY_OWN, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.9 }).addTo(map);
@@ -411,7 +401,11 @@
             });
         }
 
-        Promise.all(FILES.map(loadFile)).then(() => { buildPanel(); buildPoints(); recomputeAvailable(); }).catch(err => console.error(err));
+        Promise.all(FILES.map(loadFile)).then(() => { 
+            buildPanel(); 
+            buildPoints(); 
+            recomputeAvailable(); 
+        }).catch(err => console.error(err));
 
         document.getElementById('btnClear').addEventListener('click', () => {
             activeParams = {}; availableParams = null;
